@@ -1,99 +1,170 @@
 *&---------------------------------------------------------------------*
 *& Report  ZLAN_ACC
 *&by lan
-*有兴趣和精力一起完善的朋友联系 1510491230@qq.com
 *&---------------------------------------------------------------------*
 
 report zlan_acc.
 
-define sql_exsit_check.
-  select count( * )
-  from &1
-  where &2 = p_object.
-  if sy-subrc = 0.
-    p_gt_rep_out-exsit = 'X'.
-  endif.
-end-of-definition.
+types:begin of ty_node,
+        object(40),
+        key        type i,
+        sel,
+        request    type trkorr,
+        rtype,
+        rtmsg(255),
+      end of ty_node.
 
-define tab_rep_sel_t. "表的处理方式
-  data ls_&1 like gt_&1.
-  loop at p_gt_rep-&1 into ls_&1.
-    if ls_&1 is not initial.
-      read table p_gt_node with key nodekey =  ls_&1-node-key binary search.
-      if sy-subrc = 0.
-        ls_&1-node-sel = 'X'.
-      else.
-        ls_&1-node-sel = ''.
+"! 开发对象,早期用form写的，其实用oo更好，发现调用FORM太多，放弃改造了
+*----------------------------------------------------------------------*
+*       CLASS lcl_obj DEFINITION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+class lcl_obj definition final.
+  public section.
+    types:begin of ty_shlp,
+            name      type ddobjname,
+            dd30v_wa  type dd30v,
+            dd31v_tab type standard table of dd31v with default key,
+            dd32p_tab type standard table of dd32p with default key,
+            dd33v_tab type standard table of dd33v with default key,
+            node      type ty_node,
+          end of ty_shlp,
+          ty_t_shlp type table of ty_shlp.
+    class-data:
+      s_shlp type ty_shlp,
+      t_shlp type table of ty_shlp. "搜索帮助
+    "! 把搜索帮助名加入内表
+    "! @parameter iv_name |搜索帮助名
+    class-methods shlp_add
+      importing
+        iv_name type dd03p-shlpname.
+    "! 取搜索帮助对象,set没写是因为引用form较多不做改动了
+    class-methods shlp_get.
+  protected section.
+  private section.
+endclass.                    "lcl_obj DEFINITION
+*----------------------------------------------------------------------*
+*       CLASS lcl_obj IMPLEMENTATION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+class lcl_obj implementation.
+  method shlp_add.
+    if iv_name is not initial.
+      read table t_shlp into s_shlp with key name = iv_name.
+      if sy-subrc ne 0.
+        s_shlp-name = iv_name.
+        append s_shlp to t_shlp.
       endif.
-      modify p_gt_rep-&1 from ls_&1.
     endif.
-  endloop.
+  endmethod.                    "shlp_add
+  method shlp_get.
+    loop at t_shlp into s_shlp.
+      call function 'DDIF_SHLP_GET'
+        exporting
+          name          = s_shlp-name
+*         state         = 'A'
+         langu         = sy-langu
+        importing
+*         gotstate      = gotstate
+          dd30v_wa      = s_shlp-dd30v_wa
+        tables
+          dd31v_tab     = s_shlp-dd31v_tab
+          dd32p_tab     = s_shlp-dd32p_tab
+          dd33v_tab     = s_shlp-dd33v_tab
+        exceptions
+          illegal_input = 1.
+      if sy-subrc <> 0.
+*     message id sy-msgid type sy-msgty number sy-msgno
+*       with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+      endif.
+      modify t_shlp from s_shlp.
+    endloop.
+  endmethod.                    "shlp_get
+endclass.                    "lcl_obj IMPLEMENTATION
+define sql_exsit_check.
+  SELECT COUNT( * )
+  FROM &1
+  WHERE &2 = p_object.
+  IF sy-subrc = 0.
+    p_gt_rep_out-exsit = 'X'.
+  ENDIF.
+end-of-definition.
+define tab_rep_sel_t. "表的处理方式
+  DATA ls_&1 LIKE gt_&1.
+  LOOP AT p_gt_rep-&1 INTO ls_&1.
+  IF ls_&1 IS NOT INITIAL.
+  READ TABLE p_gt_node WITH KEY nodekey =  ls_&1-node-key BINARY SEARCH.
+  IF sy-subrc = 0.
+  ls_&1-node-sel = 'X'.
+  ELSE.
+  ls_&1-node-sel = ''.
+  ENDIF.
+  MODIFY p_gt_rep-&1 FROM ls_&1.
+  ENDIF.
+  ENDLOOP.
 end-of-definition.
 
 define tab_rep_sel_s. "结构的处理方式
-  if p_gt_rep-&1 is not initial.
-    read table p_gt_node with key nodekey =  p_gt_rep-&1-node-key binary search.
-    if sy-subrc = 0.
+  IF p_gt_rep-&1 IS NOT INITIAL.
+    READ TABLE p_gt_node WITH KEY nodekey =  p_gt_rep-&1-node-key BINARY SEARCH.
+    IF sy-subrc = 0.
       p_gt_rep-&1-node-sel = 'X'.
-    else.
+    ELSE.
       p_gt_rep-&1-node-sel = ''.
-    endif.
-  endif.
+    ENDIF.
+  ENDIF.
 end-of-definition.
-
 define pop_key_append.
-  clear gt_pop.
+  CLEAR gt_pop.
   gt_pop-key = &1.
   gt_pop-text = &2.
   gt_pop-value = &3.
-  append gt_pop.
+  APPEND gt_pop.
 end-of-definition.
-
 define object_add. "像gt_表添加对象
-  data ls_&1 like p_gt_&1.
+  DATA ls_&1 LIKE p_gt_&1.
 
-  clear:lv_exsit,ls_&1.
+  CLEAR:lv_exsit,ls_&1.
 
-  read table p_gt_&1 transporting no fields with key &2 = &3.
-  if sy-subrc ne 0.
-    loop at gt_rep.
-      read table gt_rep-&1 transporting no fields with key &2 = &3.
-      if sy-subrc = 0 .
-        lv_exsit = 'X'.
-        exit.
-      endif.
-    endloop.
-    if lv_exsit is initial.
-      ls_&1-&2 = &3.
-      append ls_&1 to p_gt_&1.
-    endif.
-  endif.
+  READ TABLE p_gt_&1 TRANSPORTING NO FIELDS WITH KEY &2 = &3.
+  IF sy-subrc NE 0.
+  LOOP AT gt_rep.
+  READ TABLE gt_rep-&1 TRANSPORTING NO FIELDS WITH KEY &2 = &3.
+  IF sy-subrc = 0 .
+  lv_exsit = 'X'.
+  EXIT.
+  ENDIF.
+  ENDLOOP.
+  IF lv_exsit IS INITIAL.
+  ls_&1-&2 = &3.
+  APPEND ls_&1 TO p_gt_&1.
+  ENDIF.
+  ENDIF.
 end-of-definition.
 
 define key_parse.
-  split lv_string1 at &1 into lv_string2 lv_string3.
-  split lv_string3 at lv_c into &2 lv_string2.
+  SPLIT lv_string1 AT &1 INTO lv_string2 lv_string3.
+  SPLIT lv_string3 AT lv_c INTO &2 lv_string2.
 end-of-definition.
 
 define global_get.
-  assign (&1) to &2.
+  ASSIGN (&1) TO &2.
 end-of-definition.
 
 define mac_add_form_field. " form html_viewer_init 中使用
-  append initial line to &1 assigning <ls_form_field>.
+  APPEND INITIAL LINE TO &1 ASSIGNING <ls_form_field>.
   <ls_form_field>-name = &2.
   <ls_form_field>-value = &3.
 end-of-definition.
-
 class lcl_application definition deferred.
-
 *----------------------------------------------------------------------*
 *       CLASS LCL_APPLICATION DEFINITION
 *----------------------------------------------------------------------*
 *
 *----------------------------------------------------------------------*
 class lcl_application definition.
-
   public section.
     methods:
       handle_node_double_click
@@ -112,7 +183,6 @@ class lcl_application implementation.
   method  handle_node_double_click.
     perform object_display using node_key.
   endmethod.                    "HANDLE_NODE_DOUBLE_CLICK
-
 endclass.                    "LCL_APPLICATION IMPLEMENTATION
 
 *HTML浏览器事件处理器
@@ -124,45 +194,19 @@ class cl_myevent_handler definition.
       importing action frame getdata postdata query_table.
 
 endclass.                    "cl_myevent_handler DEFINITION
-
 *----------------------------------------------------------------------*
 *       CLASS cl_myevent_handler IMPLEMENTATION
 *----------------------------------------------------------------------*
 *
 *----------------------------------------------------------------------*
 class cl_myevent_handler implementation.
-
   method on_sapevent.
-
     perform response_parse tables postdata using action.
-
-
   endmethod.                    "on_sapevent
 
 endclass.                    "cl_myevent_handler IMPLEMENTATION
-
 type-pools:trwbo,abap,trsel,icon.
-
 types: ty_spaces_tt type standard table of i with default key.
-
-*types:begin of ty_info, "提交到服务器所需的程序信息
-*  rep_name(40), "资源库名
-*  zip, "压缩标识
-*  text(40),
-*  url(250),
-**  datum like sy-datum,
-**  uzeit like sy-uzeit,
-*  end of ty_info.
-
-types:begin of ty_node,
-        object(40),
-        key        type i,
-        sel,
-        request    type trkorr,
-        rtype,
-        rtmsg(255),
-      end of ty_node.
-
 types: begin of ty_codes, "源代码
 *         line(72),
          line(720), "如果程序代码长度超了72，read report会dump掉的
@@ -171,17 +215,14 @@ types:begin of ty_code,
         code type standard table of ty_codes with default key,
         node type ty_node,
       end of ty_code.
-
 types:begin of ty_text,
         text type standard table of textpool with default key,
         node type ty_node,
       end of ty_text.
-
 types:begin of ty_sta,
         sta  type rsmpe_stat,
         node type ty_node,
       end of ty_sta.
-
 types: begin of ty_cua, "status
          adm type rsmpe_adm,
          sta type standard table of ty_sta with default key, "包含node
@@ -196,7 +237,6 @@ types: begin of ty_cua, "status
          tit type standard table of rsmpe_titt with default key,
          biv type standard table of rsmpe_buts with default key,
        end of ty_cua.
-
 types: begin of ty_tadir, "程序信息
          obj_type type tadir-object,
          obj_name type tadir-obj_name,
@@ -211,7 +251,6 @@ types: begin of ty_dynpro, "屏幕
          spaces     type ty_spaces_tt,
          node       type ty_node,
        end of ty_dynpro.
-
 types: begin of ty_table, "表、结构
          tablename  like dd03l-tabname,
          dd02v      type dd02v,
@@ -220,7 +259,6 @@ types: begin of ty_table, "表、结构
          istructure type dd03p occurs 0, "不能用type table of（会报错）
          node       type ty_node,
        end of ty_table.
-
 types:begin of ty_ttyp, "表类型,
         typename  type ttypename,
         gotstate  type  ddgotstate,
@@ -236,7 +274,6 @@ types:begin of ty_dtel, "数据元素
         tpara type tpara,
         node  type ty_node,
       end of ty_dtel.
-
 types:begin of ty_class, "类
         clsname  type seoclass-clsname,
         class    type vseoclass,
@@ -246,11 +283,11 @@ types:begin of ty_class, "类
       end of ty_class.
 
 types:begin of ty_doma, "域
-        name  type ddobjname,
-        dd01v type dd01v,
-        node  type ty_node,
+        name        type ddobjname,
+        dd01v       type dd01v,
+        t_dd07v_tab type standard table of dd07v with default key,
+        node        type ty_node,
       end of ty_doma.
-
 types:begin of ty_lock, "锁对象
         name  type ddobjname,
         dd25v type dd25v, "Header of the Lock Object
@@ -259,7 +296,6 @@ types:begin of ty_lock, "锁对象
         ddena type standard table of ddena with default key, "Lock Arguments of the Lock Object
         node  type ty_node,
       end of ty_lock.
-
 types:begin of ty_snro,
         object            type tnro-object,
         interval_exists,
@@ -278,13 +314,11 @@ types:begin of ty_tcode,
         usott type standard table of usott with default key,
         node  type ty_node,
       end of ty_tcode.
-
 types:begin of ty_fugr,
         area  like tlibt-area, "函数组
         areat type areat, "函数组文本
         node  type ty_node,
       end of ty_fugr.
-
 types:begin of ty_func,
         functionname       type rs38l-name,
         global_flag        like  rs38l-global,
@@ -303,7 +337,9 @@ types:begin of ty_func,
         new_source         type rsfb_source, "rssource只有72的长度是不够的
         node               type ty_node,
       end of ty_func.
-
+types:begin of ty_prog,
+        program like sy-repid, "存放程序名、函数组名等
+      end of ty_prog.
 types:begin of ty_w3mi,
         objid  type wwwdatatab-objid,
         key    type wwwdatatab,
@@ -311,7 +347,6 @@ types:begin of ty_w3mi,
       end of ty_w3mi.
 
 data: cx_root type ref to cx_root. "根异常
-
 data:
   gt_request type trwbo_request_headers with header line,
   gs_cua     type ty_cua,
@@ -322,6 +357,7 @@ data:
   gt_table   type standard table of ty_table with header line, "多张表、结构 dictionary
   gt_ttyp    type table of ty_ttyp with header line, "表类型
   gt_dtel    type table of ty_dtel with header line, "数据元素
+  gt_shlp    type table of lcl_obj=>ty_shlp with header line, "搜索帮助，内表没用这里，只是宏参考了类型
   gt_class   type table of ty_class with header line, "类
   gt_doma    type table of ty_doma with header line, "域
   gt_lock    type table of ty_lock with header line,
@@ -329,8 +365,8 @@ data:
   gt_tcode   type table of ty_tcode with header line,
   gs_fugr    type ty_fugr,
   gt_func    type table of ty_func with header line,
+  gt_prog    type table of ty_prog with header line,
   gt_w3mi    type table of ty_w3mi with header line.
-
 *资源库
 types:begin of ty_rep,
         uname(40), "用户名
@@ -348,6 +384,7 @@ types:begin of ty_rep,
         dtel      like table of gt_dtel with default key, "数据元素
         class     like table of gt_class with default key, "类
         doma      like table of gt_doma with default key, "域
+        shlp      type table of lcl_obj=>ty_shlp with default key, "搜索帮助
         lock      like table of gt_lock with default key,
         snro      like table of gt_snro with default key, "编号范围对象
         tcode     like table of gt_tcode with default key,
@@ -366,7 +403,6 @@ data:
 *  info type ty_info,
 *  rep like table of gt_rep,
 *  end of gs_rep_pac.
-
 *tree 输出的rep
 data:begin of gt_rep_out occurs 0,
        object(40),
@@ -378,22 +414,15 @@ data:begin of gt_rep_out occurs 0,
        rtmsg(255),
      end of gt_rep_out.
 *data gt_rep_out_sel like table of gt_rep_out with header line.
-
 *资源库数据tree展示
 data:
   g_alv_tree         type ref to cl_gui_alv_tree,
   g_custom_container type ref to cl_gui_docking_container,
   g_application      type ref to lcl_application.
-data: gt_sflight      type sflight occurs 0,      "Output-Table
-      gt_fieldcatalog type lvc_t_fcat,
-      ok_code         like sy-ucomm,
-      save_ok         like sy-ucomm,           "OK-Code
-      g_max           type i value 255,
-      g_fav_key       type lvc_nkey.
+data: gt_fieldcatalog type lvc_t_fcat,
+      ok_code         like sy-ucomm.
 data:
-  gs_selected_node type lvc_s_chit,
   gt_selected_node type standard table of lvc_s_chit with header line.
-
 *查询返回的结果
 data:begin of gt_result occurs 0,
        sel,
@@ -408,11 +437,9 @@ data:begin of gt_result occurs 0,
        uname(40),
        count(9),
      end of gt_result.
-
 *html浏览器
 data go_docking      type ref to cl_gui_docking_container.
 data go_html_viewer type ref to cl_gui_html_viewer .
-
 *table control（修改资源对象属性值）
 data:begin of gs_popk,
        title(40),
@@ -422,34 +449,23 @@ data:begin of gt_pop occurs 0,
        text(40),
        value(250),
      end of gt_pop.
-
 *解析json用
 data:begin of gs_fields,
        key(40),
        value(256),
      end of gs_fields.
-
 *alv
-data gs_styl type lvc_s_styl.
-data gt_styl type lvc_t_styl.
 data:
-  gt_fieldcat      type lvc_t_fcat with header line, "输出alv
-  gt_fieldcat2     type lvc_t_fcat with header line, "输出alv或动态内表
+  gt_fieldcat      type lvc_t_fcat with header line,
   gs_layout        type lvc_s_layo,
-  gt_events        type slis_t_event with header line,
-  gt_event_exit    type slis_t_event_exit with header line,
-  go_grid          type ref to cl_gui_alv_grid,
 *  go_event_receiver type ref to lcl_event_receiver,
   gs_grid_settings type lvc_s_glay,
-  gt_head          type slis_t_listheader with header line,
   gt_sort          type lvc_t_sort with header line.
 *class lcl_event_receiver definition deferred.
-
 *屏幕传值专用全局变量
 data:
   gv_url type text132,
   gv_par type string.
-
 *全局变量
 data:
   gv_msg(255),
@@ -457,7 +473,8 @@ data:
   gv_package        type devclass,
   gv_request        type trkorr,
   gv_xml            type string,
-  gv_filename       like ibipparms-path,
+*  gv_filename       LIKE ibipparms-path,
+  gv_filename(128), "srm没这个类型
   gv_state, "程序执行状态
   gv_rtype,
   gv_rtmsg(255),
@@ -465,8 +482,7 @@ data:
   gv_codepage       type cpcodepage,
   gv_namespace(250),
   gv_init,
-  gv_notif_time(30), "通知时间
-  gv_name_c(30). "当前资源库对象的所属用户
+  gv_notif_time(30).
 
 data:begin of gt_repid occurs 0,
        id like gt_result-id,
@@ -479,33 +495,27 @@ selection-screen begin of block b1 with frame title text-001.
 parameters:
   p_id(40)     modif id m1,
   p_repnam(40) modif id m1, "资源项目名
-  p_text(40)   modif id m1.
-
+  p_text(40)   modif id m4.
 select-options:
 s_prog for sy-repid no intervals modif id m2.
-
 parameters:
   p_uname(40) modif id m3,
   p_passwd(9) modif id m3.
-
 parameters:
   p_tag(40)  modif id m2,
   p_url(250) modif id m2 lower case.
 selection-screen end of block b1.
-
 selection-screen begin of block b2 with frame title text-002.
 parameters:
   p_search radiobutton group g1 default 'X' user-command u1,
   p_export radiobutton group g1,
   p_import radiobutton group g1.
 selection-screen end of block b2.
-
 selection-screen begin of block b6 with frame title text-006.
 parameters:
   p_server radiobutton group g2 default 'X' user-command u2,
   p_file   radiobutton group g2.
 selection-screen end of block b6.
-
 selection-screen begin of block b5 with frame title text-005.
 parameters:
 *p_debug as checkbox default 'X'. "开发环境
@@ -520,15 +530,14 @@ selection-screen comment /1(72) gv_c3.
 selection-screen comment /1(72) gv_c4.
 selection-screen comment /1(72) gv_c5.
 selection-screen end of block b7.
-
 *导入 对象重命名屏幕
 selection-screen begin of screen 2004 title text-004.
 parameters:
-  p_func  as checkbox,
-  p_tab   as checkbox,
-  p_tcode as checkbox.
+  p_report as checkbox,
+  p_func   as checkbox,
+  p_tab    as checkbox,
+  p_tcode  as checkbox.
 selection-screen end of screen 2004.
-
 *用户注册屏幕
 selection-screen begin of screen 2005 title text-009.
 parameters:
@@ -550,7 +559,6 @@ at selection-screen.
 start-of-selection.
   perform screen_check.
   perform exec_check.
-
 *查询
   if p_search = 'X'.
     perform rep_search.
@@ -576,7 +584,6 @@ start-of-selection.
     endif.
     perform rep_display tables gt_rep.
   endif.
-
 *&---------------------------------------------------------------------*
 *&      Form  OUTPUT
 *&---------------------------------------------------------------------*
@@ -610,7 +617,6 @@ form data_initialize .
       current_resources = current_resources
       maximal_resources = maximal_resources
       recommended_delay = recommended_delay.
-
 *系统编码
   call function 'SCP_CODEPAGE_FOR_LANGUAGE'
     exporting
@@ -619,9 +625,12 @@ form data_initialize .
       codepage    = gv_codepage
     exceptions
       no_codepage = 1.
-
+*-------------------------------------------------------
+*2022-2-16 14:50:34 SAP40 for
+*codepage 写死8402
+  gv_codepage = '8402'.
+*-------------------------------------------------------
 *  gv_program(1) = 'Z'.
-
 endform.                    " DATA_INITIALIZE
 *&---------------------------------------------------------------------*
 *&      Form  CODE_CHECK
@@ -632,10 +641,7 @@ endform.                    " DATA_INITIALIZE
 *  <--  p2        text
 *----------------------------------------------------------------------*
 form code_check changing o_error_subrc o_error_message.
-  data i_global_check   type sy-calld.
-  data i_global_program type sy-repid.
   data i_program        type sy-repid.
-  data i_with_dialog    type sy-calld.
   data o_error_include  type sy-repid.
   data o_error_line     type sy-tabix.
   data:begin of i_source occurs 0,
@@ -674,7 +680,6 @@ form lock_delete using p_program.
   data:
     lv_grag like seqg3-garg,
     enq     like table of seqg3.
-
   lv_grag = p_program.
   call function 'ENQUEUE_READ'
     exporting
@@ -685,11 +690,8 @@ form lock_delete using p_program.
       enq    = enq
     exceptions
       others = 0.
-
   describe table enq lines sy-tfill.
-
   check sy-tfill > 0.
-
   call function 'ENQUE_DELETE'
     exporting
       suppress_syslog_entry = 'X'
@@ -714,7 +716,6 @@ form code_delete .
       program = gv_program.
 
 endform.                    " CODE_DELETE
-
 *&---------------------------------------------------------------------*
 *&      Form  rep_Log
 *&---------------------------------------------------------------------*
@@ -736,10 +737,7 @@ endform.                    " rep_Log
 *  <--  p2        text
 *----------------------------------------------------------------------*
 form log_output .
-  data lo_ref type ref to cx_root. "异常处理
-  data lv_text type string.
 endform.                    " LOG_OUTPUT
-
 *&---------------------------------------------------------------------*
 *&      Form  STATUS_GET
 *&---------------------------------------------------------------------*
@@ -752,11 +750,10 @@ form status_get using p_program changing p_gs_cua type ty_cua.
   data:
     ls_sta        type ty_sta,
     lt_rsmpe_stat like table of rsmpe_stat with header line.
-
   call function 'RS_CUA_INTERNAL_FETCH'
     exporting
       program         = p_program
-      language        = '1'
+      language        = sy-langu " 只读了当前语言 09.10.2025 10:47:16|
       state           = 'A'
     importing
       adm             = p_gs_cua-adm
@@ -828,15 +825,11 @@ endform.                    " STATUS_DOWNLOAD
 *      -->P_GV_XML       text
 *----------------------------------------------------------------------*
 form file_download using p_gv_filename p_gv_xml.
-
   data:
     datatab type table_of_strings,
     ld_file type string.
-
   ld_file = p_gv_filename.
-
   append p_gv_xml to datatab.
-
   call method cl_gui_frontend_services=>gui_download
     exporting
       filename = ld_file
@@ -864,7 +857,6 @@ form rep_upload  changing p_gt_rep.
   perform file_upload using gv_filename changing gv_xml.
   perform zip_to_data using gv_xml  changing p_gt_rep.
 *  endif.
-
 endform.                    " rep_upload
 
 *&---------------------------------------------------------------------*
@@ -881,13 +873,10 @@ form zip_to_data using p_gv_xml changing p_gt_rep .
   data:
     lv_gzip_in  type xstring,
     lv_text_out type string.
-
   clear p_gt_rep.
-
   if p_gv_xml is initial.
     return.
   endif.
-
 *解压
 *非unicode系统不能填UTF-8，不填表示ANSI，可以导入UTF-8（乱码）和ANSI，导入 UTF-8 的压缩文件中文会乱码
 *unicode只能导入UTF-8，否则会异常，不填默认UTF-8
@@ -930,10 +919,6 @@ endform.                    " STATUS_FROM_XML
 form xml_to_data using p_gv_xml changing p_gt_rep .
   data lo_ref type ref to cx_root. "异常处理
   data lv_text type string.
-  data:
-    lv_gzip_in  type xstring,
-    lv_text_out type string.
-
   if p_gv_xml is initial.
     return.
   endif.
@@ -949,7 +934,6 @@ form xml_to_data using p_gv_xml changing p_gt_rep .
     catch cx_root into lo_ref.
       lv_text = lo_ref->get_text( ).
   endtry.
-
 endform.                    " STATUS_FROM_XML
 *&---------------------------------------------------------------------*
 *&      Form  STATUS_CREATE
@@ -961,7 +945,6 @@ endform.                    " STATUS_FROM_XML
 *----------------------------------------------------------------------*
 form status_set using p_program p_gv_package p_cua type ty_cua.
   data: ls_tr_key type trkey.
-  data: ms_item     type ty_tadir.
   data:
     ls_sta        type ty_sta,
     lt_rsmpe_stat like table of rsmpe_stat with header line.
@@ -984,7 +967,7 @@ form status_set using p_program p_gv_package p_cua type ty_cua.
     call function 'RS_CUA_INTERNAL_WRITE'
       exporting
         program   = p_program
-        language  = '1'
+        language  = sy-langu
         tr_key    = ls_tr_key
         adm       = p_cua-adm
         state     = 'A' "为I时出现一个激活了之后还是显示未激活的bug
@@ -1023,7 +1006,6 @@ form status_set using p_program p_gv_package p_cua type ty_cua.
       modify p_cua-sta from ls_sta.
     endloop.
   endif.
-
 *  perform request_set using p_gv_package 'ABAP' p_program.
 endform.                    " STATUS_CREATE
 *&---------------------------------------------------------------------*
@@ -1035,19 +1017,19 @@ endform.                    " STATUS_CREATE
 *  <--  p2        text
 *----------------------------------------------------------------------*
 form rep_get tables p_gt_rep structure gt_rep.
-  data ls_rep like gt_rep.
   data:
-    ls_code type ty_codes,
-    lt_code type table of ty_codes.
-
+    ls_rep       like gt_rep,
+    ls_rep_class like gt_rep. "class用的传参
+  data:
+    lt_code  type table of ty_codes,
+    ls_class type ty_class.
   loop at p_gt_rep into ls_rep.
     clear:gt_request,gt_request[],gs_cua,
     gs_code,gs_text,gt_screen,gt_screen[],
     gt_table,gt_table[],gt_ttyp,gt_ttyp[],gt_dtel,gt_dtel[],gt_doma,gt_doma[],
     gt_class,gt_class[],
     gt_lock,gt_lock[],gt_func,gt_func[],
-    gt_snro,gt_snro[],gt_tcode,gt_tcode[].
-
+    gt_snro,gt_snro[],gt_tcode,gt_tcode[],gt_prog[].
     if ls_rep-type = 'F'. "函数
 *取函数
       gt_func[] = ls_rep-func.
@@ -1066,7 +1048,8 @@ form rep_get tables p_gt_rep structure gt_rep.
                                                      gt_table
                                                      gt_ttyp
                                                      gt_dtel
-                                                     gt_w3mi.
+                                                     gt_w3mi
+                                                     gt_prog.
 
         perform func_get tables gt_func gt_table gt_ttyp gt_dtel.
       endloop.
@@ -1075,7 +1058,7 @@ form rep_get tables p_gt_rep structure gt_rep.
 *取代码
       perform code_get using ls_rep-program changing gs_code.
       perform rep_data_add using 'CODE' gs_code changing ls_rep.
-*分析程序代码
+*分析程序代码（此处分析数据字典可以不要了）
       perform code_analyze tables gs_code-code
                                                    gt_lock
                                                    gt_snro
@@ -1083,11 +1066,18 @@ form rep_get tables p_gt_rep structure gt_rep.
                                                    gt_table
                                                    gt_ttyp
                                                    gt_dtel
-                                                   gt_w3mi.
+                                                   gt_w3mi
+                                                   gt_prog.
     endif.
-
-*根据所用处清单取数据字典（分析程序代码部分可以不要了）（class也在此处处理了）
+*根据所用处清单取数据字典（分析程序代码取type部分可以不要了-20220113更新：如果程序包含了include但是没使用到include里的对象，所用处清单是查不到的）
+*（代码中用到的class名也在此处收集，WBCROSSGT表可以根据程序名查出class和class中使用的class）
     perform rep_dict_name_get tables gt_table gt_ttyp gt_dtel gt_class using ls_rep .
+*class也放在程序分组下了，需要解析class的数据字典
+    loop at gt_class into ls_class.
+      ls_rep_class-type = 'C'. "class
+      ls_rep_class-program = ls_class-clsname.
+      perform rep_dict_name_get tables gt_table gt_ttyp gt_dtel gt_class using ls_rep_class .
+    endloop.
 
 *text-pool
     perform text_get using ls_rep-program changing gs_text .
@@ -1104,7 +1094,7 @@ form rep_get tables p_gt_rep structure gt_rep.
 *表类型
       perform ttyp_get tables gt_ttyp gt_table.
       perform rep_data_add using 'TTYP' gt_ttyp[] changing ls_rep.
-*自建表和结构、这一步分割数据元素和域+同时需要把锁用到的加进来
+*自建表和结构、这一步分割数据元素和域+同时需要把锁用到的加进来+搜索帮助
       perform table_get tables gt_table gt_ttyp gt_dtel.
       perform rep_data_add using 'DICT' gt_table[] changing ls_rep.
       loop at gt_ttyp where dd40v_wa is initial. "结构里没有找到字段参考表类型
@@ -1116,6 +1106,9 @@ form rep_get tables p_gt_rep structure gt_rep.
     enddo.
 *倒序（防止依赖无法激活，这种可能有一个问题就是依赖的组件在别的文件夹下出现了，就不能直接倒序处理了）
 
+*搜索帮助
+    lcl_obj=>shlp_get( ).
+    perform rep_data_add using 'SHLP' lcl_obj=>t_shlp changing ls_rep.
 
 * 编号范围对象+编号范围
     perform snro_get tables gt_snro gt_dtel.
@@ -1126,6 +1119,8 @@ form rep_get tables p_gt_rep structure gt_rep.
 *域
     perform doma_get tables gt_dtel gt_doma.
     perform rep_data_add using 'DOMA' gt_doma[] changing ls_rep.
+
+
 *tcode
     perform tcode_get tables gt_tcode using ls_rep-program.
     perform rep_data_add using 'TCODE' gt_tcode[] changing ls_rep.
@@ -1147,7 +1142,6 @@ endform.                    " rep_get
 *  <--  p2        text
 *----------------------------------------------------------------------*
 form rep_download using p_program p_gt_rep.
-
   perform filename_set using p_program changing gv_filename.
 *  if p_zip = 'X'.
   perform zip_from_data using p_gt_rep changing gv_xml.
@@ -1156,7 +1150,6 @@ form rep_download using p_program p_gt_rep.
 *    perform xml_from_data using p_gt_rep changing gv_xml.
 *    perform xml_download using gv_filename gv_xml.
 *  endif.
-
 endform.                    " rep_download
 *&---------------------------------------------------------------------*
 *&      Form  CODE_GET
@@ -1169,8 +1162,6 @@ endform.                    " rep_download
 form code_get
                using    p_program
                changing p_gs_code structure gs_code.
-  data: lt_source type table of text1000 with header line.
-
   clear p_gs_code.
   read report p_program into p_gs_code-code.
   if sy-subrc <> 0.
@@ -1192,7 +1183,6 @@ endform.                    " CODE_GET
 *----------------------------------------------------------------------*
 form msg_sys_into  changing p_gv_msg.
   clear p_gv_msg.
-
   check sy-msgid is not initial.
   message id sy-msgid
     type sy-msgty
@@ -1221,12 +1211,10 @@ endform.                    " REP_DATA_ADD
 *      <--P_GV_FILENAME  text
 *----------------------------------------------------------------------*
 form filename_get  changing p_gv_filename.
-
   data:l_obj type ref to cl_gui_frontend_services.
   data: it_file type filetable with header line.
   data: g_rc type i.
   clear p_gv_filename.
-
   create object l_obj.
   call method l_obj->file_open_dialog
     exporting
@@ -1237,7 +1225,6 @@ form filename_get  changing p_gv_filename.
       rc          = g_rc.
   read table it_file index 1.
   p_gv_filename = it_file-filename.
-
   if p_gv_filename is initial.
     perform msg_and_leave using '文件名不能为空'.
   endif.
@@ -1253,10 +1240,8 @@ endform.                    " FILENAME_GET
 form xml_upload  using    p_gv_filename
                  changing p_gv_xml p_zip.
   data:
-    v_stream    type string,
     lcl_xml_doc type ref to cl_xml_document,
-    v_subrc     type sysubrc,
-    msg         type string.
+    v_subrc     type sysubrc.
 
   clear p_zip.
 
@@ -1279,7 +1264,6 @@ form xml_upload  using    p_gv_filename
           p_zip = 'X'.
       endcase.
     endif.
-
     if p_zip is initial.
       lcl_xml_doc->render_2_string(
         exporting
@@ -1348,7 +1332,6 @@ endform.                    " XML_UPLOAD
 *  <--  p2        text
 *----------------------------------------------------------------------*
 form rep_set tables p_gt_rep structure gt_rep changing p_gv_package.
-
   loop at p_gt_rep.
     perform code_set using p_gt_rep-program p_gt_rep-type changing p_gv_package p_gt_rep-code.
     perform status_set using p_gt_rep-program p_gv_package p_gt_rep-cua.
@@ -1356,6 +1339,7 @@ form rep_set tables p_gt_rep structure gt_rep changing p_gv_package.
     perform screen_set tables p_gt_rep-screen2  using p_gt_rep-program p_gv_package. "创建屏幕，屏幕包入请求
     perform doma_set tables p_gt_rep-doma using p_gv_package.
     perform dtel_set tables p_gt_rep-dtel using p_gv_package.
+    perform shlp_set tables p_gt_rep-shlp using p_gv_package.
     perform table_set tables p_gt_rep-dict using p_gv_package.
     perform ttyp_set tables p_gt_rep-ttyp using p_gv_package.
     perform lock_set tables p_gt_rep-lock using p_gv_package.
@@ -1379,17 +1363,29 @@ endform.                    " REP_SET
 *      -->P_P_PROGRM  text
 *----------------------------------------------------------------------*
 form code_set using p_program p_type changing p_gv_package p_code structure gs_code.
-
 *代码
   if p_code is initial or p_code-node-sel is initial.
     return.
   endif.
-
+*修改属性值
+  if p_report = 'X'.
+    clear:gs_popk,gt_pop,gt_pop[],sy-ucomm.
+    concatenate '程序' p_program into gs_popk-title.
+    pop_key_append 'PROGRAM' '程序名' p_program.
+    call screen 2003 starting at 30 10 ending at 100 20.
+    if sy-ucomm = 'OK'.
+      loop at gt_pop.
+        case gt_pop-key.
+          when 'PROGRAM'.
+            p_program = gt_pop-value.
+        endcase.
+      endloop.
+    endif.
+  endif.
 *对象条目目录
   if p_type = '1'. "可执行程序才需要、可以创建
     perform object_directory_set using p_program changing p_gv_package. "选择包，创建（修改）对象目录条目并包入请求
   endif.
-
   perform request_set using p_gv_package 'PROG' p_program changing gv_request gv_rtype gv_rtmsg. "程序包入请求 以SE03为准
   if gv_rtype = 'S'.
 *生成程序
@@ -1414,14 +1410,11 @@ endform.                    " CODE_SET
 *      -->P_P_PROGRAM  text
 *----------------------------------------------------------------------*
 form object_directory_set using p_program changing p_gv_package.
-
   data:
     fs_tadir    type tadir,        " (Structure) TADIR
     fs_tdevc    type tdevc,        " (Structure) TDEVC
     lv_obj_name like e071-obj_name.
-
   lv_obj_name = p_program.
-
 *为程序选择包，生成对象目录条目，会弹出请求（只会包进对象目录条目，不会包进程序源代码）
 *（无法从请求中删除对象目录条目，删除只是se10看不见了，如果修改包到本地还是会提示对象目录条目被请求锁定）
   call function 'TR_TADIR_POPUP_ENTRY_E071'
@@ -1452,7 +1445,6 @@ form object_directory_set using p_program changing p_gv_package.
       object_locked             = 16
       no_object_authority       = 17
       others                    = 18.
-
   if sy-subrc ne 0.
 *    message 'Error while creating TADIR entry' type 'S'.
     message '创建对象条目目录出错' type 'E'.
@@ -1470,7 +1462,6 @@ endform.                    " object_directory_set
 *----------------------------------------------------------------------*
 form zip_from_data  using p_gt_rep
                   changing p_gv_xml.
-
   data lo_ref type ref to cx_root. "异常处理
   data lv_text type string.
 
@@ -1481,16 +1472,13 @@ form zip_from_data  using p_gt_rep
     options value_handling = 'MOVE' "防止内表中有N类型dump
     source data = p_gt_rep
     result xml p_gv_xml.
-
 *转xstring（统一编码）
   perform xstring_from_string changing p_gv_xml.
-
 *压缩（现在转了xstring再压缩，不用考虑编码问题了）
 *unicode系统只能导出UTF-8，填ANSI会出异常
 *非unicode系统导出时可以填UTF-8和ANSI，不填就是默认ANSI
   data lv_abap_encod type abap_encod.
   lv_abap_encod = 'UTF-8'.
-
   try.
       call method cl_abap_gzip=>compress_text
         exporting
@@ -1501,7 +1489,6 @@ form zip_from_data  using p_gt_rep
     catch cx_root into lo_ref.
       lv_text = lo_ref->get_text( ).
   endtry.
-
   p_gv_xml = lv_gzip_out.
 endform.                    " zip_from_data
 *&---------------------------------------------------------------------*
@@ -1515,10 +1502,6 @@ endform.                    " zip_from_data
 form xml_from_data  using p_gt_rep
                   changing p_gv_xml.
 
-  data lo_ref type ref to cx_root. "异常处理
-  data lv_text type string.
-
-  data lv_gzip_out type xstring.
 
 *转xml
   call transformation id
@@ -1564,7 +1547,6 @@ form filename_set using value(p_program) changing p_gv_filename.
   else.
     p_gv_filename = v_filename.
   endif.
-
   if p_gv_filename is initial.
     perform msg_and_leave using '选择路径'.
   endif.
@@ -1599,7 +1581,6 @@ form text_get using  p_program changing p_gs_text structure gs_text.
 *  data: fs_txtlang type type_s_txtlang,
 *        lt_txtlang type table of type_s_txtlang,
 *              t_txt   type table of textpool.
-
 **取语言数
 *  select language
 *    from repotext
@@ -1628,7 +1609,6 @@ form text_set  using    p_program p_gv_package changing p_text structure gs_text
   if p_text is initial or p_text-node-sel is initial.
     return.
   endif.
-
   perform request_set using p_gv_package 'REPT' p_program changing gv_request gv_rtype gv_rtmsg. "文本请求
   if gv_rtype = 'S'.
     insert textpool p_program from p_text-text.
@@ -1652,13 +1632,11 @@ endform.                    " TEXT_SET
 *----------------------------------------------------------------------*
 form screen_get  tables   p_gt_screen structure gt_screen
                  using    p_program.
-
   data: ls_header               type rpy_dyhead,
         lt_containers           type dycatt_tab,
         lt_fields_to_containers type dyfatc_tab,
         lt_flow_logic           type swydyflow,
         lt_d020s                type table of d020s.
-
   field-symbols: <ls_d020s>       like line of lt_d020s,
 *                 <lv_outputstyle> type scrpostyle,
                  <lv_outputstyle>,                          "兼容r3
@@ -1732,14 +1710,10 @@ endform.                    " SCREEN_GET
 *----------------------------------------------------------------------*
 form screen_set  tables   p_screen structure gt_screen
                  using    p_object p_gv_package.
-
-  data: lv_name   type dwinactiv-obj_name,
-        ls_dynpro like line of gt_screen.
-
+  data: ls_dynpro like line of gt_screen.
   if p_screen[] is initial.
     return.
   endif.
-
 * ls_dynpro is changed by the function module, a field-symbol will cause
 * the program to dump since gt_screen cannot be changed
   loop at p_screen into ls_dynpro where node-sel = 'X'.
@@ -1803,26 +1777,28 @@ endform.                    " SCREEN_SET
 form table_get  tables   p_gt_table structure gt_table
                                      p_gt_ttyp structure gt_ttyp
                                      p_gt_dtel structure gt_dtel.
-
   data: begin of lt_dd02l occurs 0,
           tabname  type dd02l-tabname,
           as4local type dd02l-as4local,
           tabclass type dd02l-tabclass,
         end of lt_dd02l.
-
-  data lv_exsit.
   data ls_strcture like line of gt_table-istructure.
-
   loop at p_gt_table where dd09v is initial. "没取过的
     perform table_definition_get changing p_gt_table.
     modify p_gt_table.
 
 *添加表中的自建数据元素（或结构，如果是结构就需要递归）
-    loop at p_gt_table-istructure into ls_strcture where rollname(1) = 'Z'. "字段类型有可能是结构
-      perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using ls_strcture-rollname.
+    loop at p_gt_table-istructure into ls_strcture where rollname(1) = 'Z' or rollname(1) = 'Y' "字段类型有可能是结构
+    or fieldname = '.INCLUDE'.
+      if ls_strcture-fieldname = '.INCLUDE'.
+        perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using ls_strcture-precfield.
+      else.
+        perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using ls_strcture-rollname.
+      endif.
+*添加搜索帮助
+      lcl_obj=>shlp_add( exporting iv_name = ls_strcture-shlpname ).
     endloop.
   endloop.
-
 endform.                    " TABLE_GET
 
 *&---------------------------------------------------------------------*
@@ -1843,19 +1819,15 @@ form table_description_get using value(tablename)
                 where tabname = tablename
                  and ddlanguage = sy-langu.
 endform.                                                                                          "table_description_get
-
 *----------------------------------------------------------------------------------------------------------------------
 *  table_definition_get... Find the structure of a table from the SAP database.
 *----------------------------------------------------------------------------------------------------------------------
 form table_definition_get changing wa_table like gt_table.
-
   data gotstate like dcobjif-gotstate.
   data: lt_dd03p type standard table of dd03p with header line.
-  data: wadictstruct type dd03p.
   data:
     ls_dd02v like dd02v,
     ls_dd09l like dd09v.
-
   check wa_table-dd09v is initial. "只取没取过的
 
   call function 'DDIF_TABL_GET'
@@ -1884,7 +1856,6 @@ form table_definition_get changing wa_table like gt_table.
     endloop.
   endif.
 endform.                                                                                           "table_definition_get
-
 *&---------------------------------------------------------------------*
 *&      Form  removeleadingzeros
 *&---------------------------------------------------------------------*
@@ -1893,7 +1864,6 @@ endform.                                                                        
 *      -->MYVALUE    text
 *----------------------------------------------------------------------*
 form removeleadingzeros changing myvalue.
-
   call function 'CONVERSION_EXIT_ALPHA_OUTPUT'
     exporting
       input  = myvalue
@@ -1910,18 +1880,17 @@ endform.                                                                        
 *      -->P_P_GS_REp_table  text
 *----------------------------------------------------------------------*
 form table_set  tables   p_table structure gt_table using p_gv_package.
-*TRANSP	透明表格
-*INTTAB	结构
+*TRANSP 透明表格
+*INTTAB 结构
 *CLUSTER  簇表
-*POOL	共享表格
-*VIEW	一般视图结构
-*APPEND	附加结构
+*POOL 共享表格
+*VIEW 一般视图结构
+*APPEND 附加结构
 
-  data: lv_rc       like sy-subrc,
-        lv_obj_name type tadir-obj_name,
-        ls_dd02v    type dd02v,
-        ls_dd09l    type dd09l,
-        lt_dd03p    type standard table of dd03p with default key.
+  data: lv_rc    like sy-subrc,
+        ls_dd02v type dd02v,
+        ls_dd09l type dd09l,
+        lt_dd03p type standard table of dd03p with default key.
 
   data ls_structure type dd03p.
   data:
@@ -1968,15 +1937,12 @@ form table_set  tables   p_table structure gt_table using p_gv_package.
     perform request_set using p_gv_package 'DICT' lv_object changing gv_request gv_rtype gv_rtmsg. "表、结构请求（debug RS_DD_COPY_OBJ得来）
     if gv_rtype = 'S'.
       clear:ls_dd09l,ls_dd02v,lt_dd03p,lt_dd03p[],lv_msg1,lv_msg2.
-
       ls_dd02v = p_table-dd02v. "抬头
       ls_dd09l = p_table-dd09v. "技术设置
-
       loop at p_table-istructure into ls_structure.
         append initial line to lt_dd03p assigning <ls_dd03p>.
         <ls_dd03p> = ls_structure.
       endloop.
-
       call function 'DDIF_TABL_PUT' "可以新建修改表、结构
         exporting
           name              = p_table-tablename
@@ -2037,7 +2003,6 @@ form request_select  changing p_gt_request type trwbo_request_headers.
   data: lrs_trfunction type trsel_trs_function,
         lv_types       type string,
         ls_ranges      type trsel_ts_ranges.
-
   " Fill all request types
   lv_types = 'KWTCOEMPDRSXQFG'.
   lrs_trfunction-sign   = 'I'.
@@ -2086,7 +2051,6 @@ form request_set  using p_gv_package p_type p_program
     or p_type = 'NROB'.
     lv_global_lock = 'X'.
   endif.
-
   free memory id 'RESUL1'. "重复包函数时会返回空请求号，debug找到缓存位置
 
   call function 'RS_CORR_INSERT'
@@ -2096,7 +2060,7 @@ form request_set  using p_gv_package p_type p_program
       object              = p_program
       object_class        = p_type
       devclass            = p_gv_package
-      master_language     = '1'
+      master_language     = sy-langu
 *     mode                = 'INSERT' "如果是insert每次都会创建对象条目目录
       mode                = 'I' "20210318更新：测试 I 传入请求号不传包都不会弹框了
 *     object_class_supports_ma = 'X'
@@ -2118,10 +2082,8 @@ form request_set  using p_gv_package p_type p_program
 *      lv_devclass = '$TMP'.
 *      lv_ordernum = lv_devclass.
 *    endif.
-
 *    p_gv_package = lv_devclass.
     ordernum = lv_ordernum.
-
     rtype = 'S'.
     rtmsg = '创建请求成功'.
   endif.
@@ -2210,17 +2172,14 @@ module pai_100 input.
     when 'SEL_ALL' or 'DESEL_ALL'.
       perform tree_refresh tables gt_rep gt_rep_out.
     when 'RENAME'.
-      clear:p_func,p_tab,p_tcode.
+      clear:p_report,p_func,p_tab,p_tcode.
       call selection-screen 2004 starting at 30 10 ending at 90 20.
     when others.
-
 * Toolbar events are registered in constructur method of
 * CL_ALV_TREE_BASE as application events. So the dispatch call
 * is a must if you want to use the standard toolbar.
       call method cl_gui_cfw=>dispatch.
-
   endcase.
-
   call method cl_gui_cfw=>flush.
 endmodule.                 " PAI  INPUT
 
@@ -2245,12 +2204,10 @@ form tree_init tables p_gt_rep structure gt_rep p_gt_rep_out structure gt_rep_ou
       lifetime_error              = 4
       lifetime_dynpro_dynpro_link = 5
       others                      = 6.
-
   if sy-subrc <> 0.
     message s001(00) with '屏幕容器初始化失败'.
     leave list-processing.
   endif.
-
 * create tree control
   create object g_alv_tree
     exporting
@@ -2283,14 +2240,11 @@ form tree_init tables p_gt_rep structure gt_rep p_gt_rep_out structure gt_rep_ou
     changing
       it_fieldcatalog     = gt_fieldcatalog
       it_outtab           = p_gt_rep_out[]. "table must be empty !
-
 *节点
   perform tree_hierarchy_create tables p_gt_rep  p_gt_rep_out.
   perform tree_events_register.
-
 * Send data to frontend.
   call method g_alv_tree->frontend_update.
-
 endform.                               " tree_init
 
 *&---------------------------------------------------------------------*
@@ -2310,7 +2264,6 @@ form tree_hierarchy_header_build changing
   p_hierarchy_header-width_pix = ''.
 
 endform.                               " tree_hierarchy_header_build
-
 *&---------------------------------------------------------------------*
 *&      Form  tree_fieldcatalog_build
 *&---------------------------------------------------------------------*
@@ -2318,15 +2271,12 @@ endform.                               " tree_hierarchy_header_build
 *----------------------------------------------------------------------*
 form tree_fieldcatalog_build.
   data: ls_fieldcatalog type lvc_s_fcat.
-
   clear:gt_fieldcatalog,gt_fieldcatalog[].
-
   perform fieldcat_build tables gt_fieldcatalog using 'OTYPE' '对象类型' space space space space space space space.
 *  perform fieldcat_build tables gt_fieldcatalog using 'DESCP' '描述' space space space space space space space.
   perform fieldcat_build tables gt_fieldcatalog using 'RTYPE' '消息类型' space space space space space space space.
   perform fieldcat_build tables gt_fieldcatalog using 'RTMSG' '消息文本' space space space space space space space.
   perform fieldcat_build tables gt_fieldcatalog using 'REQUEST' '请求' space space space space space space space.
-
 * Now change the fieldcatalog to hide fields and to determine
 * some initial calculations for chosen fields.
   loop at gt_fieldcatalog into ls_fieldcatalog.
@@ -2336,7 +2286,6 @@ form tree_fieldcatalog_build.
     endcase.
     modify gt_fieldcatalog from ls_fieldcatalog.
   endloop.
-
 endform.                               " tree_fieldcatalog_build
 
 *&---------------------------------------------------------------------*
@@ -2347,10 +2296,8 @@ endform.                               " tree_fieldcatalog_build
 form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structure gt_rep_out.
   data:
     l_top_key    type lvc_nkey,
-    lv_sub_key   type lvc_nkey, "第二层文件夹的key
     l_new_key    type lvc_nkey,
     p_node_text  type lvc_value,
-    p_node_image type tv_image,
     p_item_image type tv_image.
 
   data:
@@ -2362,7 +2309,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
     ls_doma   like gt_doma,
     ls_lock   like gt_lock,
     ls_snro   like gt_snro,
-    ls_node   type ty_node,
     ls_tcode  type ty_tcode,
     ls_func   type ty_func,
     ls_class  like gt_class.
@@ -2396,7 +2342,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
                          changing l_new_key.
       p_gt_rep-code-node-key = l_new_key.
     endif.
-
     if p_gt_rep-text is not initial.
       clear:p_gt_rep_out.
       p_node_text = p_gt_rep-program.
@@ -2410,7 +2355,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
                          changing l_new_key.
       p_gt_rep-text-node-key = l_new_key.
     endif.
-
     if p_gt_rep-cua is not initial.
       loop at p_gt_rep-cua-sta into ls_sta.
         clear:p_gt_rep_out.
@@ -2424,7 +2368,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-cua-sta from ls_sta.
       endloop.
     endif.
-
     if p_gt_rep-screen2  is not initial.
       loop at p_gt_rep-screen2  into ls_screen.
         clear:p_gt_rep_out.
@@ -2438,14 +2381,12 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-screen2  from ls_screen.
       endloop.
     endif.
-
 *表类型
     loop at p_gt_rep-ttyp into ls_ttyp.
       perform tree_node_add using ls_ttyp-typename '表类型' 'TTYP' l_top_key
                                            changing ls_ttyp.
       modify p_gt_rep-ttyp from ls_ttyp.
     endloop.
-
     if p_gt_rep-dict is not initial.
       clear:p_gt_rep_out.
       loop at p_gt_rep-dict into ls_dict.
@@ -2468,7 +2409,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-dict from ls_dict.
       endloop.
     endif.
-
     if p_gt_rep-dtel is not initial.
       loop at p_gt_rep-dtel into ls_dtel.
         clear:p_gt_rep_out.
@@ -2485,7 +2425,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-dtel from ls_dtel.
       endloop.
     endif.
-
     if p_gt_rep-doma is not initial.
       loop at p_gt_rep-doma into ls_doma.
         clear:p_gt_rep_out.
@@ -2502,7 +2441,12 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-doma from ls_doma.
       endloop.
     endif.
-
+*搜索帮助
+    loop at p_gt_rep-shlp into lcl_obj=>s_shlp.
+      perform tree_node_add using lcl_obj=>s_shlp-name '搜索帮助' 'SHLP' l_top_key
+                                           changing lcl_obj=>s_shlp.
+      modify p_gt_rep-shlp from lcl_obj=>s_shlp.
+    endloop.
     if p_gt_rep-lock is not initial.
       loop at p_gt_rep-lock into ls_lock.
         clear:p_gt_rep_out.
@@ -2519,7 +2463,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-lock from ls_lock.
       endloop.
     endif.
-
     if p_gt_rep-snro is not initial.
       loop at p_gt_rep-snro into ls_snro.
         clear:p_gt_rep_out.
@@ -2536,7 +2479,6 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-snro from ls_snro.
       endloop.
     endif.
-
     if p_gt_rep-tcode is not initial.
       loop at p_gt_rep-tcode into ls_tcode.
         clear:p_gt_rep_out.
@@ -2553,29 +2495,24 @@ form tree_hierarchy_create tables p_gt_rep structure gt_rep p_gt_rep_out structu
         modify p_gt_rep-tcode from ls_tcode.
       endloop.
     endif.
-
 *类
     loop at p_gt_rep-class into ls_class.
       perform tree_node_add using ls_class-clsname '类' 'CLASS' l_top_key
                                            changing ls_class.
       modify p_gt_rep-class from ls_class.
     endloop.
-
 *函数组
     if p_gt_rep-fugr-area is not initial.
       perform tree_node_add using p_gt_rep-fugr-area '函数组' 'FUGR' l_top_key
                                            changing p_gt_rep-fugr.
     endif.
-
 *函数模块
     loop at p_gt_rep-func into ls_func.
       perform tree_node_add using ls_func-functionname '函数模块' 'FUNC' l_top_key
                                            changing ls_func.
       modify p_gt_rep-func from ls_func.
     endloop.
-
     modify p_gt_rep.
-
     call method g_alv_tree->expand_node
       exporting
         i_node_key = l_top_key.
@@ -2622,11 +2559,9 @@ form tree_events_register.
   append l_event to lt_events.
   l_event-eventid = cl_gui_column_tree=>eventid_checkbox_change. "勾选checkbox
   append l_event to lt_events.
-
 *给事件分配处理器
   create object g_application.
   set handler g_application->handle_node_double_click for g_alv_tree.
-
 * register events on frontend
   call method g_alv_tree->set_registered_events
     exporting
@@ -2641,22 +2576,17 @@ form tree_events_register.
 *--------------------
 
 endform.                               " tree_events_register
-
 *&---------------------------------------------------------------------*
 *&      Form  program_exit
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
 form program_exit.
-
   call method g_alv_tree->free.
   clear g_alv_tree.
-
   call method g_custom_container->free.
   clear g_custom_container.
-
   leave to screen 0.
-
 endform.                               " program_exit
 
 *&---------------------------------------------------------------------*
@@ -2675,8 +2605,7 @@ form tree_add_a_folder using p_gt_rep_out p_relat_key type lvc_nkey
                 changing p_new_key.
 
   data: l_layout_node type lvc_s_layn.
-  data: lt_item_layout type lvc_t_layi,
-        ls_item_layout type lvc_s_layi.
+  data: lt_item_layout type lvc_t_layi.
 
   l_layout_node-isfolder = 'X'.   "=>add a folder, NOT a leaf
   l_layout_node-n_image = p_node_image. "=>Display an icon
@@ -2702,7 +2631,6 @@ form tree_add_a_folder using p_gt_rep_out p_relat_key type lvc_nkey
       e_new_node_key   = p_new_key.
 
 endform.                    "tree_add_a_folder
-
 *&---------------------------------------------------------------------*
 *&      Form  insert_icons
 *&---------------------------------------------------------------------*
@@ -2726,7 +2654,6 @@ form insert_icons tables pt_sflight structure sflight.
     endcase.
     modify pt_sflight from ls_sflight.
   endloop.
-
 endform.                    " INSERT_ICONS
 
 *&---------------------------------------------------------------------*
@@ -2767,6 +2694,12 @@ form tree_add_a_node using  p_rep_out like gt_rep_out
     ls_item_layout-chosen   = ''.
   endif.
 
+* 已存在对象默认不选中 add by Jeff 20220422 start
+  if p_rep_out-exsit = abap_true.
+    ls_item_layout-chosen   = ''.
+  endif.
+* 已存在对象默认不选中 add by Jeff 20220422  end
+
   append ls_item_layout to lt_item_layout.
 
 *  l_layout_node-n_image = p_node_image.
@@ -2788,7 +2721,6 @@ form tree_add_a_node using  p_rep_out like gt_rep_out
       e_new_node_key   = p_new_key.
 
 endform.                    "tree_add_a_node
-
 *&---------------------------------------------------------------------*
 *&      Form  fieldcat_build
 *&---------------------------------------------------------------------*
@@ -2817,7 +2749,6 @@ form fieldcat_build tables lt_fieldcat structure lvc_s_fcat
   lt_fieldcat-f4availabl = f4availabl.
   lt_fieldcat-checktable = checktable.
   lt_fieldcat-edit = edit.
-
   append lt_fieldcat.
 endform.                    "fieldcat_build
 
@@ -2840,8 +2771,6 @@ form object_exsit_check  using p_object p_type
 *        ls_dd25l like dd25l,
 *        ls_nriv like nriv,
 *        ls_tstc like tstc.
-  data t_txt   type table of textpool.
-
   clear:p_gt_rep_out-rtype,p_gt_rep_out-rtmsg.
 
   case p_type.
@@ -2869,6 +2798,8 @@ form object_exsit_check  using p_object p_type
       sql_exsit_check tfdir funcname.
     when 'CLASS'.
       sql_exsit_check seoclass  clsname.
+    when 'SHLP'.
+      sql_exsit_check dd30v  shlpname.
     when others.
   endcase.
 
@@ -2880,7 +2811,6 @@ form object_exsit_check  using p_object p_type
       p_gt_rep_out-rtmsg = '存在同名对象，执行将会直接覆盖'.
     endif.
   endif.
-
 endform.                    " object_exsit_check
 *&---------------------------------------------------------------------*
 *&      Form  TREE_REFRESH
@@ -2907,7 +2837,6 @@ endform.                    " TREE_REFRESH
 form dtel_add  tables   p_gt_dtel structure gt_dtel
                using    p_name.
   data lv_exsit.
-
   read table p_gt_dtel transporting no fields with key name = p_name.
   if sy-subrc ne 0.
     loop at gt_rep.
@@ -2932,9 +2861,6 @@ endform.                    " DTEL_ADD
 *      -->P_PROGRAM  text
 *----------------------------------------------------------------------*
 form dtel_get  tables   p_gt_dtel structure gt_dtel.
-  data name     type ddobjname.
-  data state    type ddobjstate.
-  data langu    type sy-langu.
   data gotstate type ddgotstate.
   data dd04v_wa type dd04v.
   data tpara_wa type tpara.
@@ -2944,7 +2870,7 @@ form dtel_get  tables   p_gt_dtel structure gt_dtel.
       exporting
         name          = p_gt_dtel-name
         state         = 'A'
-        langu         = '1'
+        langu         = sy-langu "此处注意，如果数据元素是多语言的，只会读到当前语言 lan 09.10.2025 10:44:38|
       importing
         gotstate      = gotstate
         dd04v_wa      = dd04v_wa
@@ -2967,18 +2893,13 @@ endform.                    " DTEL_GET
 *----------------------------------------------------------------------*
 form dtel_set  tables   p_dtel structure gt_dtel
                using    p_gv_package.
-
-  data name     type ddobjname.
-  data dd04v_wa type dd04v.
   data:
     lv_rc        like sy-subrc,
     lv_msg1(255),
     lv_msg2(255).
-
   if p_dtel[] is initial.
     return.
   endif.
-
   loop at p_dtel where node-sel = 'X'.
 *包入请求（对象不存在都可以包）
     data lv_object(40).
@@ -3015,7 +2936,6 @@ form dtel_set  tables   p_dtel structure gt_dtel
       if sy-subrc <> 0 or lv_rc > 4. "rc = 0 成功 = 4 警告 >4 失败
         lv_msg2 = '激活数据元素出错'.
       endif.
-
 *记录日志
       clear gv_msg.
       concatenate lv_msg1 lv_msg2 into gv_msg separated by space.
@@ -3030,6 +2950,71 @@ form dtel_set  tables   p_dtel structure gt_dtel
     modify p_dtel.
   endloop.
 endform.                    " DTEL_SET
+*&---------------------------------------------------------------------*
+*&      Form  shlp_set
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_SHLP        text
+*      -->P_GV_PACKAGE  text
+*----------------------------------------------------------------------*
+form shlp_set  tables   p_shlp structure lcl_obj=>s_shlp
+               using    p_gv_package.
+
+  data:
+    lv_rc        like sy-subrc,
+    lv_msg1(255),
+    lv_msg2(255).
+
+  loop at p_shlp where node-sel = 'X'.
+*包入请求（对象不存在都可以包）
+    data lv_object(40).
+    data: lv_ok(2).
+    concatenate 'SHLP' p_shlp-name into lv_object.
+    perform request_set using p_gv_package 'DICT' lv_object changing gv_request gv_rtype gv_rtmsg. "表、结构请求（debug RS_DD_COPY_OBJ得来）
+    if gv_rtype = 'S'.
+      call function 'DDIF_SHLP_PUT'
+        exporting
+          name              = p_shlp-name
+          dd30v_wa          = p_shlp-dd30v_wa
+        tables
+          dd31v_tab         = p_shlp-dd31v_tab
+          dd32p_tab         = p_shlp-dd32p_tab
+          dd33v_tab         = p_shlp-dd33v_tab
+        exceptions
+          shlp_not_found    = 1
+          name_inconsistent = 2
+          shlp_inconsistent = 3
+          put_failure       = 4
+          put_refused       = 5.
+      if sy-subrc <> 0.
+        perform msg_sys_into changing lv_msg1.
+      endif.
+*激活
+      call function 'RS_DD_ACTIVATE'
+        exporting
+          objname = p_shlp-name
+          objtype = 'H'
+*         p_wb_manager = p_wb_manager
+        importing
+          ok      = lv_ok.
+*      if lv_ok is initial.
+*        lv_msg2 = '激活搜索帮助出错'.
+*      endif.
+*记录日志
+      clear gv_msg.
+      concatenate lv_msg1 lv_msg2 into gv_msg separated by space.
+      if lv_msg1 is initial and lv_msg2 is initial.
+        perform rep_log using gv_request 'S' '成功' changing p_shlp-node.
+      else.
+        perform rep_log using space 'E' gv_msg changing p_shlp-node.
+      endif.
+    else.
+      perform rep_log using space gv_rtype gv_rtmsg changing p_shlp-node.
+    endif.
+    modify p_shlp.
+  endloop.
+endform.                    " DTEL_SET
 
 *&---------------------------------------------------------------------*
 *&      Form  class_set
@@ -3042,9 +3027,9 @@ endform.                    " DTEL_SET
 form class_set  tables   p_class structure gt_class
                using    p_gv_package.
 
-  data name     type ddobjname.
   data:
-        lo_source type ref to cl_oo_source.
+*        lo_source type ref to cl_oo_source.
+        lo_source type ref to object.
   data:
     ls_clskey type seoclskey,
     lt_source type standard table of string with default key.
@@ -3054,11 +3039,9 @@ form class_set  tables   p_class structure gt_class
     lv_msg3(255).
   data lo_ref type ref to cx_root. "异常处理
   data lv_text type string.
-
   if p_class[] is initial.
     return.
   endif.
-
   loop at p_class where node-sel = 'X'.
 *包入请求（对象不存在都可以包）
     data lv_object(40).
@@ -3087,7 +3070,6 @@ form class_set  tables   p_class structure gt_class
           number sy-msgno
           with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 into lv_msg1.
       endif.
-
 *写入source
       ls_clskey-clsname = p_class-clsname.
       lt_source = p_class-t_source.
@@ -3098,42 +3080,33 @@ form class_set  tables   p_class structure gt_class
             lo_source_new type ref to object,
             lo_settings   type ref to object,
             lr_settings   type ref to data.
-
           field-symbols <lg_settings> type any.
-
           call function 'SEO_BUFFER_INIT'.
           call function 'SEO_BUFFER_REFRESH'
             exporting
               cifkey  = ls_clskey
               version = seoc_version_inactive.
-
           call method ('CL_OO_FACTORY')=>('CREATE_INSTANCE')
             receiving
               result = lo_factory.
-
           call method lo_factory->('CREATE_SETTINGS')
             exporting
               modification_mode_enabled = abap_true
             receiving
               result                    = lo_settings.
-
           create data lr_settings type ref to ('IF_OO_CLIF_SOURCE_SETTINGS').
           assign lr_settings->* to <lg_settings>.
-
           <lg_settings> ?= lo_settings.
-
           call method lo_factory->('CREATE_CLIF_SOURCE')
             exporting
               clif_name = ls_clskey-clsname
               settings  = <lg_settings>
             receiving
               result    = lo_source_new.
-
           try.
               call method lo_source_new->('IF_OO_CLIF_SOURCE~LOCK').
             catch cx_oo_access_permission.
           endtry.
-
           call method lo_source_new->('IF_OO_CLIF_SOURCE~SET_SOURCE')
             exporting
               source = lt_source.
@@ -3142,35 +3115,65 @@ form class_set  tables   p_class structure gt_class
         catch cx_root into lo_ref.
           lv_text = lo_ref->get_text( ).
 *老的方法
-          create object lo_source
-            exporting
-              clskey             = ls_clskey
-            exceptions
-              class_not_existing = 1
-              others             = 2.
+*          create object lo_source
+*            exporting
+*              clskey             = ls_clskey
+*            exceptions
+*              class_not_existing = 1
+*              others             = 2.
+*          if sy-subrc <> 0.
+*            message id sy-msgid
+*              type sy-msgty
+*              number sy-msgno
+*              with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 into lv_msg2.
+*          else.
+*            try.
+*                lo_source->access_permission( seok_access_modify ).
+*                lo_source->set_source( lt_source ).
+*                lo_source->save( ).
+*                lo_source->access_permission( seok_access_free ).
+*              catch cx_root into lo_ref.
+*                lv_msg3 = lo_ref->get_text( ).
+*            endtry.
+*          endif.
+          create object lo_source type ('CL_OO_SOURCE') "有些系统也没有CL_OO_SOURCE，为了防止语法检查报错，全部都要动态调用
+          exporting
+                  clskey             = ls_clskey
+          exceptions
+                  class_not_existing = 1
+                  others         = 2.
           if sy-subrc <> 0.
             message id sy-msgid
               type sy-msgty
               number sy-msgno
               with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 into lv_msg2.
           else.
-
             try.
-                lo_source->access_permission( seok_access_modify ).
-                lo_source->set_source( lt_source ).
-                lo_source->save( ).
-                lo_source->access_permission( seok_access_free ).
+                call method lo_source->('ACCESS_PERMISSION')
+                  exporting
+                    access_mode = seok_access_modify.
+                call method lo_source->('SET_SOURCE')
+                  exporting
+                    i_source = lt_source.
+                call method lo_source->('SAVE').
+                call method lo_source->('ACCESS_PERMISSION')
+                  exporting
+                    access_mode = seok_access_free.
               catch cx_root into lo_ref.
                 lv_msg3 = lo_ref->get_text( ).
             endtry.
           endif.
-      endtry.
 
+
+
+          call method lo_source->('GET_OLD_SOURCE')
+            receiving
+              old_source = lt_source.
+      endtry.
 *激活
       data lt_objects               type standard table of dwinactiv with header line.
       data lv_str like dwinactiv-obj_name.
       lv_str = lv_object && '%'.
-
       select *
         into corresponding fields of table lt_objects
         from dwinactiv "未激活的对象，SE24 debug来
@@ -3210,9 +3213,9 @@ form class_set  tables   p_class structure gt_class
       perform rep_log using space gv_rtype gv_rtmsg changing p_class-node.
     endif.
     modify p_class.
+    clear lv_rtmsg.
   endloop.
 endform.                    " DTEL_SET
-
 *&---------------------------------------------------------------------*
 *&      Form  ttyp_set
 *&---------------------------------------------------------------------*
@@ -3223,18 +3226,13 @@ endform.                    " DTEL_SET
 *----------------------------------------------------------------------*
 form ttyp_set  tables   p_ttyp structure gt_ttyp
                using    p_gv_package.
-
-  data name     type ddobjname.
-  data dd04v_wa type dd04v.
   data:
     lv_rc        like sy-subrc,
     lv_msg1(255),
     lv_msg2(255).
-
   if p_ttyp[] is initial.
     return.
   endif.
-
   loop at p_ttyp where node-sel = 'X'.
 *包入请求（对象不存在都可以包）
     data lv_object(40).
@@ -3275,7 +3273,6 @@ form ttyp_set  tables   p_ttyp structure gt_ttyp
       if sy-subrc <> 0 or lv_rc > 4. "rc = 0 成功 = 4 警告 >4 失败
         lv_msg2 = '激活表类型出错'.
       endif.
-
 *记录日志
       clear gv_msg.
       concatenate lv_msg1 lv_msg2 into gv_msg separated by space.
@@ -3300,15 +3297,12 @@ endform.                    " DTEL_SET
 *----------------------------------------------------------------------*
 form doma_get  tables   p_gt_dtel structure gt_dtel
                                         p_gt_doma structure gt_doma.
-  data name     type ddobjname.
-  data state    type ddobjstate.
-  data langu    type sy-langu.
   data gotstate type ddgotstate.
   data dd01v_wa type dd01v.
-  data tpara_wa type tpara.
+  data: lt_dd07v_tab type standard table of dd07v.
 
 *从数据元素中获取域
-  loop at p_gt_dtel where dd04v-domname(1) = 'Z'.
+  loop at p_gt_dtel where dd04v-domname(1) = 'Z' or dd04v-domname(1) = 'Y'.
     p_gt_doma-name = p_gt_dtel-dd04v-domname.
     append p_gt_doma.
   endloop.
@@ -3318,13 +3312,16 @@ form doma_get  tables   p_gt_dtel structure gt_dtel
       exporting
         name          = p_gt_doma-name
         state         = 'A'
-        langu         = '1'
+        langu         = sy-langu
       importing
         gotstate      = gotstate
         dd01v_wa      = dd01v_wa
+      tables
+        dd07v_tab     = lt_dd07v_tab
       exceptions
         illegal_input = 1.
     p_gt_doma-dd01v = dd01v_wa.
+    p_gt_doma-t_dd07v_tab = lt_dd07v_tab.
     modify p_gt_doma.
   endloop.
 
@@ -3339,18 +3336,13 @@ endform.                    " DOMA_GET
 *----------------------------------------------------------------------*
 form doma_set  tables   p_doma structure gt_doma
                using    p_gv_package.
-
-  data name     type ddobjname.
-  data dd01v_wa type dd01v.
   data:
     lv_rc        like sy-subrc,
     lv_msg1(255),
     lv_msg2(255).
-
   if p_doma[] is initial.
     return.
   endif.
-
   loop at p_doma where node-sel = 'X'.
 *包入请求（对象不存在都可以包）
     data lv_object(40).
@@ -3361,6 +3353,8 @@ form doma_set  tables   p_doma structure gt_doma
         exporting
           name              = p_doma-name
           dd01v_wa          = p_doma-dd01v
+        tables
+          dd07v_tab         = p_doma-t_dd07v_tab
         exceptions
           doma_not_found    = 1
           name_inconsistent = 2
@@ -3387,7 +3381,6 @@ form doma_set  tables   p_doma structure gt_doma
       if sy-subrc <> 0 or lv_rc > 4. "rc = 0 成功 = 4 警告 >4 失败
         lv_msg2 = '激活域出错'.
       endif.
-
 *记录日志
       clear gv_msg.
       concatenate lv_msg1 lv_msg2 into gv_msg separated by space.
@@ -3425,7 +3418,7 @@ form rep_scan  tables   p_gt_rep structure gt_rep using p_program.
     append p_gt_rep.
   endif.
 
-*函数池及函数模块和include
+*函数池及函数模块和include（这一步会解析代码，也会取到代码中submit的程序）
   perform rep_scan_function_pool tables p_gt_rep.
 
 *程序类型描述
@@ -3467,16 +3460,7 @@ endform.                    " MSG_SYS
 *      -->P_GT_LOCK  text
 *----------------------------------------------------------------------*
 form lock_get  tables p_gt_lock structure gt_lock.
-
-  data name      type ddobjname.
-  data state     type ddobjstate.
-  data langu     type sy-langu.
   data gotstate  type ddgotstate.
-  data dd25v_wa  type dd25v.
-  data dd26e_tab type standard table of dd26e.
-  data dd27p_tab type standard table of dd27p.
-  data ddena_tab type standard table of ddena.
-
   loop at p_gt_lock.
     call function 'DDIF_ENQU_GET'
       exporting
@@ -3494,7 +3478,6 @@ form lock_get  tables p_gt_lock structure gt_lock.
         illegal_input = 1.
     modify p_gt_lock.
   endloop.
-
 endform.                    " LOCK_GET
 *&---------------------------------------------------------------------*
 *&      Form  CODE_ANALYZE
@@ -3511,7 +3494,8 @@ form code_analyze  tables   p_gt_code structure gs_codes
                             p_gt_table structure gt_table
                             p_gt_ttyp structure gt_ttyp
                             p_gt_dtel structure gt_dtel
-                            p_gt_w3mi structure gt_w3mi.
+                            p_gt_w3mi structure gt_w3mi
+                            p_gt_prog structure gt_prog.
 
   data: begin of keywords occurs 10,
           key(20),
@@ -3526,19 +3510,33 @@ form code_analyze  tables   p_gt_code structure gs_codes
   data: overflow(65535).    "überlaufbereich f. Token
   data lv_len type i.
   data lv_exsit.
-
-
+*&---------------------------------------------------------------------*
+*    add by denghb  16.02.2022 11:20:23 start
+*&---------------------------------------------------------------------*
+  data: lt_tab type table of string.
+  data: ls_tab type string.
+*&---------------------------------------------------------------------*
+*    add by denghb 16.02.2022 11:20:23  end
+*&---------------------------------------------------------------------*
 *抓CALL
   keywords = 'CALL'. "只能用一个关键词（不能两个）
   append keywords.
 
-  scan abap-source p_gt_code
-    keywords from keywords
-    tokens into token
-    statements into statements
-    overflow into overflow
-    with analysis.
+  scan abap-source p_gt_code  " 扫描
+  keywords from keywords      " 关键字来自
+  tokens into token           " 代币进入
+  statements into statements  " 声明进入
+  overflow into overflow      " 溢出
+  with analysis.              " 通过分析
 
+*&---------------------------------------------------------------------*
+*    add by denghb  16.02.2022 11:25:09 start
+*&---------------------------------------------------------------------*
+  split overflow at `'` into table lt_tab.
+  delete lt_tab where table_line is initial.
+*&---------------------------------------------------------------------*
+*    add by denghb 16.02.2022 11:25:09  end
+*&---------------------------------------------------------------------*
   loop at statements.
     clear lv_exsit.
     statements-from = statements-from + 1.
@@ -3551,9 +3549,22 @@ form code_analyze  tables   p_gt_code structure gs_codes
         if token-str+1(10) = 'ENQUEUE_EZ'. "自建锁对象
           lv_len = lv_len - 8.                              "去掉前8位
           clear p_gt_lock.
-          p_gt_lock-name = token-str+9(lv_len).
+*&---------------------------------------------------------------------*
+*    add by denghb  16.02.2022 14:16:11 start
+*&---------------------------------------------------------------------*
+          if token-ovfl = 'X'.
+            loop at lt_tab into ls_tab where table_line cs token-str+9.
+              p_gt_lock-name = ls_tab.
+              delete lt_tab.
+              exit.
+            endloop.
+          else.
+            p_gt_lock-name = token-str+9(lv_len).
+          endif.
+*&---------------------------------------------------------------------*
+*    add by denghb 16.02.2022 14:16:11  end
+*&---------------------------------------------------------------------*
           object_add lock name p_gt_lock-name.
-
         elseif token-str+1(lv_len) = 'NUMBER_GET_NEXT'. "编号对象
           do.
             statements-from = statements-from + 1.
@@ -3566,9 +3577,22 @@ form code_analyze  tables   p_gt_code structure gs_codes
           read table token index statements-from.
           lv_len = strlen( token-str ) - 2. "去掉引号
           clear p_gt_snro.
-          p_gt_snro-object = token-str+1(lv_len).
+*&---------------------------------------------------------------------*
+*    add by denghb  16.02.2022 14:16:11 start
+*&---------------------------------------------------------------------*
+          if token-ovfl = 'X'.
+            loop at lt_tab into ls_tab where table_line cs token-str+1.
+              p_gt_snro-object = ls_tab.
+              delete lt_tab.
+              exit.
+            endloop.
+          else.
+            p_gt_snro-object = token-str+1(lv_len).
+          endif.
+*&---------------------------------------------------------------------*
+*    add by denghb 16.02.2022 14:16:11  end
+*&---------------------------------------------------------------------*
           object_add snro object p_gt_snro-object.
-
 *        elseif token-str+1(lv_len) = 'DOWNLOAD_WEB_OBJECT'. "WEB对象（动态传值，目前没有比较好的方法）
 *          do.
 *            statements-from = statements-from + 1.
@@ -3585,35 +3609,59 @@ form code_analyze  tables   p_gt_code structure gs_codes
 *          if lv_exsit is initial.
 *            append p_gt_w3mi.
 *          endif.
-
-        elseif token-str+1(1) = 'Z'. "自建函数
+        elseif token-str+1(1) = 'Z' or token-str+1(1) = 'Y'. "自建函数
 *          READ TABLE statements INTO ls_statements
           clear p_gt_func.
-          p_gt_func-functionname = token-str+1(lv_len).
+*&---------------------------------------------------------------------*
+*    add by denghb  16.02.2022 12:02:50 start
+*&---------------------------------------------------------------------*
+          if token-ovfl = 'X'.
+            loop at lt_tab into ls_tab where table_line cs token-str+1.
+              p_gt_func-functionname = ls_tab.
+              delete lt_tab.
+              exit.
+            endloop.
+          else.
+            p_gt_func-functionname = token-str+1(lv_len).
+          endif.
+*&---------------------------------------------------------------------*
+*    add by denghb 16.02.2022 12:02:50  end
+*&---------------------------------------------------------------------*
           object_add func functionname p_gt_func-functionname.
         endif.
     endcase.
   endloop.
-
+*抓submit
+  clear:keywords[],token[],statements[],overflow.
+  keywords = 'SUBMIT'. "只能用一个关键词（不能两个）
+  append keywords.
+  scan abap-source p_gt_code
+    keywords from keywords
+    tokens into token
+    statements into statements
+    overflow into overflow
+    with analysis.
+  loop at statements.
+    statements-from = statements-from + 1.
+    read table token index statements-from.
+    p_gt_prog-program = token-str.
+    append p_gt_prog.
+  endloop.
 *锁明细数据（为了抓锁中的表结构，这一步提前了）
   perform lock_get tables gt_lock. "同时检索锁对象中的表结构
-
 *锁中的表结构
   loop at p_gt_lock.
     clear p_gt_table.
     p_gt_table-tablename = p_gt_lock-dd25v-roottab.
     perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using p_gt_table-tablename.
   endloop.
-
-**抓TABLES语句
-*  perform code_scan_tables tables p_gt_code p_gt_table.
-*
-**抓LIKE和TYPE
-*  perform code_scan_likeortype tables p_gt_code p_gt_table p_gt_ttyp p_gt_dtel.
-*
-**抓sql 增删改查（D010TAB中没有函数的）
-*  perform code_scan_sql tables p_gt_code p_gt_table.
-
+*如果程序有include，但是每调用include里的form，在表反查的时候是查不到的，所以下面逻辑还是需要的
+*抓TABLES语句
+  perform code_scan_tables tables p_gt_code p_gt_table.
+*抓LIKE和TYPE
+  perform code_scan_likeortype tables p_gt_code p_gt_table p_gt_ttyp p_gt_dtel.
+*抓sql 增删改查（D010TAB中没有函数的）
+  perform code_scan_sql tables p_gt_code p_gt_table.
 endform.                    " CODE_ANALYZE
 *&---------------------------------------------------------------------*
 *&      Form  LOCK_SET
@@ -3625,7 +3673,6 @@ endform.                    " CODE_ANALYZE
 *----------------------------------------------------------------------*
 form lock_set  tables   p_lock structure gt_lock
                using    p_package.
-
   data:
     lv_rc        like sy-subrc,
     lv_msg1(255),
@@ -3634,11 +3681,9 @@ form lock_set  tables   p_lock structure gt_lock
 *DATA DD25V_WA  TYPE DD25V.
 *DATA DD26E_TAB TYPE STANDARD TABLE OF DD26E.
 *DATA DD27P_TAB TYPE STANDARD TABLE OF DD27P.
-
   if p_lock[] is initial.
     return.
   endif.
-
   loop at p_lock where node-sel = 'X'.
 *包入请求（对象不存在都可以包）
     perform request_set using p_package 'ENQU' p_lock-name changing gv_request gv_rtype gv_rtmsg. "表、结构请求（debug RS_DD_COPY_OBJ得来）
@@ -3659,12 +3704,10 @@ form lock_set  tables   p_lock structure gt_lock
       if sy-subrc <> 0.
         perform msg_sys_into changing lv_msg1.
       endif.
-
 *激活
 *DATA NAME TYPE DDOBJNAME.
 *DATA PRID TYPE SY-TABIX.
 *DATA RC   TYPE SY-SUBRC.
-
       call function 'DDIF_ENQU_ACTIVATE'
         exporting
           name        = p_lock-name
@@ -3677,7 +3720,6 @@ form lock_set  tables   p_lock structure gt_lock
       if sy-subrc <> 0 or lv_rc > 4. "rc = 0 成功 = 4 警告 >4 失败
         lv_msg2 = '激活出错'.
       endif.
-
 *记录日志
       clear gv_msg.
       concatenate lv_msg1 lv_msg2 into gv_msg separated by space.
@@ -3691,7 +3733,6 @@ form lock_set  tables   p_lock structure gt_lock
     endif.
     modify p_lock.
   endloop.
-
 endform.                    " LOCK_SET
 *&---------------------------------------------------------------------*
 *&      Form  REP_EXSIT_CHECK
@@ -3707,7 +3748,6 @@ form rep_exsit_check  using p_table
                                p_object
                       changing p_exsit.
   field-symbols <lv_fs> type standard table.
-
   clear p_exsit.
   loop at gt_rep.
     assign component p_table of structure gt_rep to <lv_fs>.
@@ -3726,9 +3766,7 @@ endform.                    " REP_EXSIT_CHECK
 *      -->P_GT_SNRO  text
 *----------------------------------------------------------------------*
 form snro_get  tables   p_gt_snro structure gt_snro p_gt_dtel structure gt_dtel.
-
   data ls_interval like inriv . "编号间隔范围
-
   loop at p_gt_snro.
     call function 'NUMBER_RANGE_OBJECT_READ'
       exporting
@@ -3764,17 +3802,14 @@ form snro_get  tables   p_gt_snro structure gt_snro p_gt_dtel structure gt_dtel.
         modify p_gt_snro-interval from ls_interval.
       endloop.
     endif.
-
     modify p_gt_snro.
   endloop.
-
 *添加编号对象中的自建数据元素
   loop at p_gt_snro.
     if p_gt_snro-object_attributes-domlen(1) = 'Z'.
       perform dtel_add tables p_gt_dtel using p_gt_snro-object_attributes-domlen.
     endif.
   endloop.
-
 endform.                    " SNRO_GET
 *&---------------------------------------------------------------------*
 *&      Form  SNRO_SET
@@ -3786,7 +3821,6 @@ endform.                    " SNRO_GET
 *----------------------------------------------------------------------*
 form snro_set  tables   p_snro structure gt_snro
                using  p_package.
-
 *DATA OBJECT              TYPE TNRO-OBJECT.
 *DATA CHECK_AT_ALL_EVENTS TYPE C.
 *DATA ERROR               TYPE INRER.
@@ -3794,17 +3828,14 @@ form snro_set  tables   p_snro structure gt_snro
   data ls_interval            type  inriv.
   data lv_indicator.
   data lt_rep_out like gt_rep_out.
-
   data:
     lv_rc        type c,
     lv_msg1(255),
     lv_msg2(255),
     lt_errors    like table of inoer with header line.
-
   if p_snro[] is initial.
     return.
   endif.
-
   loop at p_snro where node-sel = 'X'.
 *包入请求（对象不存在都可以包）
     perform request_set using p_package 'NROB' p_snro-object changing gv_request gv_rtype gv_rtmsg. "表、结构请求（debug RS_DD_COPY_OBJ得来）
@@ -3834,7 +3865,6 @@ form snro_set  tables   p_snro structure gt_snro
       if sy-subrc <> 0 or lv_rc = 'E'. "lv_rc可能返回E
         perform msg_sys_into changing lv_msg1.
       endif.
-
 *更新编号范围
       loop at p_snro-interval into ls_interval.
         select count( * )
@@ -3856,7 +3886,6 @@ form snro_set  tables   p_snro structure gt_snro
           interval         = p_snro-interval
         exceptions
           object_not_found = 1.
-
       call function 'NUMBER_RANGE_UPDATE_CLOSE' "不调用close修改不生效
         exporting
           object                 = p_snro-object
@@ -3866,7 +3895,6 @@ form snro_set  tables   p_snro structure gt_snro
           others                 = 3.
       if sy-subrc <> 0.
       endif.
-
 *传输编号范围（传输请求可以取到，不过没有回写了）
 *      if gs_rfcsi-rfcsaprl > 470. "ecc
 *        perform transport_intervalls in program sapmsnum using p_snro-object space ' '.
@@ -3875,7 +3903,6 @@ form snro_set  tables   p_snro structure gt_snro
 *      endif.
       perform transport_intervalls in program sapmsnum if found using p_snro-object space ' '. "R3
       perform transport_intervals in program sapmsnum if found using p_snro-object space ' '. "ECC
-
 *修改对象之后确保调用对象的地方都得到更新
       call function 'NUMBER_RANGE_OBJECT_CLOSE'
         exporting
@@ -3885,7 +3912,6 @@ form snro_set  tables   p_snro structure gt_snro
       if sy-subrc <> 0.
         perform msg_sys_into changing lv_msg2.
       endif.
-
 *记录日志
       clear gv_msg.
       concatenate lv_msg1 lv_msg2 into gv_msg separated by space.
@@ -3899,7 +3925,6 @@ form snro_set  tables   p_snro structure gt_snro
     endif.
     modify p_snro.
   endloop.
-
 endform.                    " SNRO_SET
 *&---------------------------------------------------------------------*
 *&      Form  TREE_CHECKED_ITEMS_GET
@@ -3913,18 +3938,14 @@ form tree_checked_items_get
 *                                              tables p_rep_out structure gt_rep_out
                                               tables pt_selected_node structure gt_selected_node
                                               using    p_alv_tree type ref to cl_gui_alv_tree.
-
   data lt_selected_node type lvc_t_chit.
-
   call method p_alv_tree->get_checked_items
     importing
       et_checked_items = lt_selected_node.
   pt_selected_node[] = lt_selected_node.
-
   if pt_selected_node[] is initial.
     message '至少选中一行' type 'E'.
   endif.
-
 *  loop at lt_selected_node into ls_selected_node.
 ** this method gets the line correspondent to a node code
 *    call method p_alv_tree->get_outtab_line
@@ -3934,7 +3955,6 @@ form tree_checked_items_get
 *        e_outtab_line = p_rep_out.
 *    append p_rep_out.
 *  endloop.
-
 endform.                    " TREE_CHECKED_ITEMS_GET
 *&---------------------------------------------------------------------*
 *&      Form  REP_SEL
@@ -3946,7 +3966,6 @@ endform.                    " TREE_CHECKED_ITEMS_GET
 *----------------------------------------------------------------------*
 form rep_sel  tables   p_gt_rep structure gt_rep
                        p_gt_node structure gt_selected_node.
-
   data:
     ls_sta    type ty_sta,
     ls_screen like gt_screen,
@@ -3955,11 +3974,8 @@ form rep_sel  tables   p_gt_rep structure gt_rep
     ls_doma   like gt_doma,
     ls_lock   like gt_lock,
     ls_snro   like gt_snro,
-    ls_node   type ty_node,
     ls_tcode  type ty_tcode.
-
   sort p_gt_node by nodekey.
-
   loop at p_gt_rep.
 *文件夹
     if p_gt_rep is not initial.
@@ -3970,7 +3986,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         p_gt_rep-node-sel = space.
       endif.
     endif.
-
 *源代码
     if p_gt_rep-code is not initial.
       read table p_gt_node with key nodekey = p_gt_rep-code-node-key binary search.
@@ -3980,7 +3995,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         p_gt_rep-code-node-sel = space.
       endif.
     endif.
-
 *文本池
     if p_gt_rep-text is not initial.
       read table p_gt_node with key nodekey = p_gt_rep-text-node-key binary search.
@@ -3990,7 +4004,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         p_gt_rep-text-node-sel = space.
       endif.
     endif.
-
 *状态栏
     loop at p_gt_rep-cua-sta into ls_sta.
       if ls_sta is not initial.
@@ -4003,7 +4016,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-cua-sta from ls_sta.
       endif.
     endloop.
-
 *屏幕
     loop at p_gt_rep-screen2  into ls_screen.
       if ls_screen is not initial.
@@ -4016,10 +4028,8 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-screen2  from ls_screen.
       endif.
     endloop.
-
 *表类型
     tab_rep_sel_t ttyp.
-
 *表结构
     loop at p_gt_rep-dict into ls_dict.
       if ls_dict is not initial.
@@ -4032,7 +4042,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-dict from ls_dict.
       endif.
     endloop.
-
 *数据元素
     loop at p_gt_rep-dtel into ls_dtel.
       if ls_dtel is not initial.
@@ -4045,7 +4054,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-dtel from ls_dtel.
       endif.
     endloop.
-
 *域
     loop at p_gt_rep-doma into ls_doma.
       if ls_doma is not initial.
@@ -4058,7 +4066,8 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-doma from ls_doma.
       endif.
     endloop.
-
+*搜素帮助
+    tab_rep_sel_t shlp.
 *锁对象
     loop at p_gt_rep-lock into ls_lock.
       if ls_lock is not initial.
@@ -4071,7 +4080,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-lock from ls_lock.
       endif.
     endloop.
-
 *编号对象
     loop at p_gt_rep-snro into ls_snro.
       if ls_snro is not initial.
@@ -4084,7 +4092,6 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-snro from ls_snro.
       endif.
     endloop.
-
 *tcode
     loop at p_gt_rep-tcode into ls_tcode.
       if ls_tcode is not initial.
@@ -4097,17 +4104,14 @@ form rep_sel  tables   p_gt_rep structure gt_rep
         modify p_gt_rep-tcode from ls_tcode.
       endif.
     endloop.
-
 *函数组
     tab_rep_sel_s fugr.
 *函数模块
     tab_rep_sel_t func.
 *类
     tab_rep_sel_t class..
-
     modify p_gt_rep.
   endloop.
-
 endform.                    " REP_SEL
 *&---------------------------------------------------------------------*
 *&      Form  TCODE_GET
@@ -4119,18 +4123,13 @@ endform.                    " REP_SEL
 *----------------------------------------------------------------------*
 form tcode_get  tables   p_gt_tcode structure gt_tcode
                 using    p_program.
-
   data lt_tstc like table of tstc with header line.
-
 *RPY_TRANSACTION_READ 也可以
-
   select *
     into corresponding fields of table lt_tstc
     from tstc
     where pgmna = p_program.
-
   delete lt_tstc where tcode(1) ne 'Z' and tcode(1) ne 'Y'.
-
   loop at lt_tstc.
     gt_tcode-tstc = lt_tstc.
     select single *
@@ -4155,7 +4154,6 @@ form tcode_get  tables   p_gt_tcode structure gt_tcode
       where name = lt_tstc-tcode and type = 'TR'.
     append gt_tcode.
   endloop.
-
 endform.                    " TCODE_GET
 *&---------------------------------------------------------------------*
 *&      Form  TCODE_SET
@@ -4167,13 +4165,9 @@ endform.                    " TCODE_GET
 *----------------------------------------------------------------------*
 form tcode_set  tables p_gt_tcode structure gt_tcode
                 using    p_package.
-
-  data:
-                  lv_type         type rglif-docutype.
   data:
     ls_tstct type tstct,
     ls_tstca type tstca.
-
   loop at p_gt_tcode where node-sel = 'X'.
 *修改属性值（不清楚一共改哪些东西，后面测试看看）
     if p_tcode = 'X'.
@@ -4204,11 +4198,9 @@ form tcode_set  tables p_gt_tcode structure gt_tcode
         endloop.
       endif.
     endif.
-
 *包入请求（对象不存在都可以包）
     perform request_set using p_package 'TRAN' p_gt_tcode-tstc-tcode changing gv_request gv_rtype gv_rtmsg. "表、结构请求（debug RS_DD_COPY_OBJ得来）
     if gv_rtype = 'S'.
-
 *debug se93 复制得来
 *删除
       delete from tstct where tcode = p_gt_tcode-tstc-tcode.
@@ -4218,7 +4210,6 @@ form tcode_set  tables p_gt_tcode structure gt_tcode
       delete from tstcc where tcode = p_gt_tcode-tstc-tcode.
       delete from usott where name  = p_gt_tcode-tstc-tcode and type = 'TR'.
 *    perform transaction_authorities_delete(lseukf01) using p_gt_tcode-tstc-tcode.
-
 *插入
       insert tstc from p_gt_tcode-tstc.
       insert tstcp from p_gt_tcode-tstcp.
@@ -4226,7 +4217,6 @@ form tcode_set  tables p_gt_tcode structure gt_tcode
       insert tstct from table p_gt_tcode-tstct.
       insert tstca from table p_gt_tcode-tstca.
       insert usott from table p_gt_tcode-usott.
-
 *添加对象列表
       call function 'RS_TREE_OBJECT_PLACEMENT'
         exporting
@@ -4244,7 +4234,6 @@ form tcode_set  tables p_gt_tcode structure gt_tcode
     endif.
     modify p_gt_tcode.
   endloop.
-
 endform.                    " TCODE_SET
 *&---------------------------------------------------------------------*
 *&      Form  FUNC_GET
@@ -4257,20 +4246,14 @@ form func_get  tables   p_gt_func structure gt_func
                                     p_gt_table structure gt_table
                                     p_gt_ttyp structure gt_ttyp
                                     p_gt_dtel structure gt_dtel.
-
-  data new_source              type rsfb_source.
   data:
     ls_import_parameter   like rsimp,
     ls_changing_parameter like rscha,
     ls_export_parameter   like rsexp,
-    ls_tables_parameter   like rstbl,
-    ls_table              type ty_table.
-
+    ls_tables_parameter   like rstbl.
   data:begin of lt_dbfield occurs 0,
          dbfield type likefield,
        end of lt_dbfield.
-  data lv_exsit.
-
   loop at p_gt_func where short_text is initial. "只抓没取过的
     call function 'RPY_FUNCTIONMODULE_READ_NEW'
       exporting
@@ -4300,14 +4283,12 @@ form func_get  tables   p_gt_func structure gt_func
       delete p_gt_func.
       continue.
     endif.
-
     select single pname
       into p_gt_func-function_pool "fm取出来的函数组有Bug，会少几个字符
       from tfdir
       where funcname = p_gt_func-functionname.
     shift p_gt_func-function_pool left by 4 places.
     modify p_gt_func.
-
 *参数中的数据字典
     loop at p_gt_func-import_parameter into ls_import_parameter.
       lt_dbfield-dbfield = ls_import_parameter-typ.
@@ -4328,11 +4309,9 @@ form func_get  tables   p_gt_func structure gt_func
     delete lt_dbfield where dbfield(1) ne 'Z'.
     sort lt_dbfield by dbfield.
     delete adjacent duplicates from lt_dbfield.
-
     loop at lt_dbfield.
       perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using lt_dbfield-dbfield.
     endloop.
-
     loop at p_gt_table.
       perform table_definition_get changing p_gt_table. "取表字段（参考的数据元素）
       modify p_gt_table.
@@ -4356,7 +4335,6 @@ form tree_node_add  using
                              p_mtype "标识（判断是否存在）
                              p_top_key
                     changing p_object. "结构
-
   data:
     ls_rep_out   like line of gt_rep_out,
     ls_node      type ty_node,
@@ -4365,28 +4343,23 @@ form tree_node_add  using
   field-symbols:
     <ls_struc>,
     <lv_var>.
-
 *准备数据
   lv_node_text = p_value.
   ls_rep_out-otype = p_text.
   assign component 'NODE' of structure p_object to <ls_struc>.
   ls_node = <ls_struc>.
   move-corresponding ls_node to ls_rep_out.
-
 *检查对象是否存在
   if gv_state = 0. "只上传未执行 "还没执行过
     perform object_exsit_check using p_value p_mtype changing ls_rep_out.
   endif.
-
 *添加树节点
   perform tree_add_a_node using  ls_rep_out p_top_key lv_node_text
                             space space
                      changing lv_new_key.
-
 *回写node_key
   assign component 'KEY' of structure <ls_struc> to <lv_var>.
   <lv_var> = lv_new_key.
-
 endform.                    " TREE_NODE_ADD
 *&---------------------------------------------------------------------*
 *&      Form  FUNC_SET
@@ -4398,20 +4371,17 @@ endform.                    " TREE_NODE_ADD
 *----------------------------------------------------------------------*
 form func_set  tables   p_gt_func structure gt_func
                using    p_package.
-
   data:
     function_include like  rs38l-include,
     corrnum_e        like  e071-trkorr,
     lv_line          type i,
     lv_include       type rs38l-include.
   data ls_new_source like line of p_gt_func-new_source.
+  data ls_source like line of p_gt_func-source.
   data lo_ref type ref to cx_root. "异常处理
   data lv_text type string.
-
   clear gv_msg.
-
   loop at p_gt_func where node-sel = 'X'.
-
 *修改属性值
     if p_func = 'X'.
       clear:gs_popk,gt_pop,gt_pop[],sy-ucomm.
@@ -4430,33 +4400,38 @@ form func_set  tables   p_gt_func structure gt_func
         endloop.
       endif.
     endif.
-
 *包入请求（对象不存在都可以包）
     perform request_set using p_package 'FUNC' p_gt_func-functionname changing gv_request gv_rtype gv_rtmsg.
     if gv_rtype = 'S'.
-      if p_gt_func-source[] is not initial.
-*删掉头尾两行，不知道为啥insert函数不自动去掉
-        describe table p_gt_func-source lines lv_line.
-        delete p_gt_func-source index lv_line.
-        delete p_gt_func-source index 1.
-*去掉参数部分的注释
-        delete p_gt_func-source where line(2) = '*"'.
-      else.
-*删掉头尾两行，不知道为啥insert函数不自动去掉
-        describe table p_gt_func-new_source lines lv_line.
-        delete p_gt_func-new_source index lv_line.
-        delete p_gt_func-new_source index 1.
-*去掉参数部分的注释
-        loop at p_gt_func-new_source  into ls_new_source.
-          try. "防止字符为空 string长度为0时，偏移dump
-              if ls_new_source(2) = '*"'.
-                delete p_gt_func-new_source .
-              endif.
-            catch cx_root into lo_ref.
-              lv_text = lo_ref->get_text( ).
-          endtry.
-        endloop.
-      endif.
+*      IF p_gt_func-source[] IS NOT INITIAL.
+*        READ TABLE p_gt_func-source INTO ls_source INDEX 1. "防止没有退出程序重复导入函数导致代码删少了 lan 2025年10月9日17:27:19
+*        IF ls_source(8) = 'FUNCTION'.
+**删掉头尾两行，不知道为啥insert函数不自动去掉
+*          DESCRIBE TABLE p_gt_func-source LINES lv_line.
+*          DELETE p_gt_func-source INDEX lv_line.
+*          DELETE p_gt_func-source INDEX 1.
+**去掉参数部分的注释
+*          DELETE p_gt_func-source WHERE line(2) = '*"'.
+*        ENDIF.
+*      ELSE.
+*        READ TABLE p_gt_func-new_source INTO ls_new_source INDEX 1. "防止没有退出程序重复导入函数导致代码删少了 lan 2025年10月9日17:27:19
+*        IF ls_new_source(8) = 'FUNCTION'.
+**删掉头尾两行，不知道为啥insert函数不自动去掉
+*          DESCRIBE TABLE p_gt_func-new_source LINES lv_line.
+*          DELETE p_gt_func-new_source INDEX lv_line.
+*          DELETE p_gt_func-new_source INDEX 1.
+**去掉参数部分的注释
+*          LOOP AT p_gt_func-new_source  INTO ls_new_source.
+*            TRY. "防止字符为空 string长度为0时，偏移dump
+*                IF ls_new_source(2) = '*"'.
+*                  DELETE p_gt_func-new_source .
+*                ENDIF.
+*              CATCH cx_root INTO lo_ref.
+*                lv_text = lo_ref->get_text( ).
+*            ENDTRY.
+*          ENDLOOP.
+*        ENDIF.
+*      ENDIF.
 
 *判断函数是否存在
       call function 'FUNCTION_EXISTS'
@@ -4522,9 +4497,21 @@ form func_set  tables   p_gt_func structure gt_func
             enqueue_system_failure  = 9
             canceled_in_corr        = 10.
 *记录日志
-        clear gv_msg.
         if sy-subrc = 0.
-          perform rep_log using gv_request 'S' '成功' changing p_gt_func-node.
+          "生成程序(使用上面的函数会重复填加 Function )
+          if p_gt_func-source[] is not initial.
+            insert report function_include from p_gt_func-source.
+          else.
+            insert report function_include from p_gt_func-new_source.
+          endif.
+
+          if sy-subrc = 0.
+            perform rep_log using gv_request 'S' '成功' changing p_gt_func-node.
+          else.
+            perform msg_sys_into changing gv_msg.
+            perform rep_log using space 'E' gv_msg changing p_gt_func-node.
+          endif.
+*          perform rep_log using gv_request 'S' '成功' changing p_gt_func-node.
         else. "插入函数失败
           perform msg_sys_into changing gv_msg.
           perform rep_log using space 'E' gv_msg changing p_gt_func-node.
@@ -4550,18 +4537,17 @@ form rep_scan_function_pool  tables   p_gt_rep structure gt_rep.
     ls_code  like gs_code,
     lt_lock  type table of ty_lock with header line,
     lt_snro  type table of ty_snro with header line,
-    lt_tcode type table of ty_tcode with header line,
     lt_func  type table of ty_func with header line, "程序中的函数
     lt_func2 type table of ty_func with header line, "函数中的函数
     lt_table type table of ty_table with header line,
     lt_ttyp  type table of ty_ttyp with header line,
     lt_dtel  type table of ty_dtel with header line,
     lt_w3mi  type table of ty_w3mi with header line,
-    lv_exsit,
     lv_pname type tfdir-pname,
     lv_tabix like sy-tabix,
     ls_func  like lt_func,
-    lt_code  type table of ty_codes.
+    lt_code  type table of ty_codes,
+    lt_prog  type table of ty_prog with header line.
 
   loop at p_gt_rep.
     clear:ls_code,lt_lock,lt_lock[],lt_snro,lt_snro[],lt_func,lt_func[],lt_table,lt_table[],lt_dtel,lt_dtel[].
@@ -4578,7 +4564,8 @@ form rep_scan_function_pool  tables   p_gt_rep structure gt_rep.
                                                lt_table
                                                lt_ttyp
                                                lt_dtel
-                                               lt_w3mi.
+                                               lt_w3mi
+                                               lt_prog.
 
       loop at lt_func.
 *递归函数中调用的函数
@@ -4614,14 +4601,14 @@ form rep_scan_function_pool  tables   p_gt_rep structure gt_rep.
                                                  lt_table
                                                  lt_ttyp
                                                  lt_dtel
-                                                 lt_w3mi.
+                                                 lt_w3mi
+                                                 lt_prog.
         loop at lt_func2. "防止重复操作和死循环
           read table lt_func transporting no fields with key functionname = lt_func2-functionname.
           if sy-subrc ne 0.
             append lt_func2 to lt_func.
           endif.
         endloop.
-
 *追加函数组和函数模块
         clear p_gt_rep.
         select single pname
@@ -4641,18 +4628,31 @@ form rep_scan_function_pool  tables   p_gt_rep structure gt_rep.
             select single area areat
               into corresponding fields of p_gt_rep-fugr
               from tlibt
-              where area = lv_pname and spras = 1.
+              where area = lv_pname and spras = sy-langu. "如果当前语言不对可能会导致函数组导不出来 lan 09.10.2025 16:58:22|
             append lt_func to p_gt_rep-func.
             append p_gt_rep.
           endif.
         endif.
+      endloop.
+*追加submit的程序
+      clear p_gt_rep.
+      loop at lt_prog where program(1) = 'Z' or program(1) = 'Y'. "排除submit标准程序的情况
+        read table p_gt_rep with key program = lt_prog-program.
+        if sy-subrc ne 0.
+          p_gt_rep-program = lt_prog-program.
+          select single subc as type
+            into corresponding fields of  p_gt_rep
+            from trdir
+            where name = lt_prog-program.
+          append p_gt_rep.
+        endif.
+
       endloop.
     endif.
   endloop.
 
 
 endform.                    " rep_scan_function_pool
-
 *&---------------------------------------------------------------------*
 *&      Form  rep_scan_include
 *&---------------------------------------------------------------------*
@@ -4665,10 +4665,9 @@ form rep_scan_include  tables p_gt_rep structure gt_rep using value(p_program) v
   data: begin of lt_includes occurs 50,
           name like progdir-name,
         end of lt_includes.
-  data ls_reposrc type reposrc.
   data functab       type standard table of rs38l_incl with header line.
   data function_pool  like  tlibg-area.
-
+  data: lv_function_pool_top type progdir-name.
   clear p_gt_rep. "p_program是工作区p_gt_rep的字段
 
 *取所有include（函数池不包含XX）
@@ -4688,7 +4687,6 @@ form rep_scan_include  tables p_gt_rep structure gt_rep using value(p_program) v
     message '请检查程序名是否正确' type 'S' display like 'E'.
     leave list-processing and return to screen 0.
   endif.
-
   if p_type = 'F'.
 *函数池下函数对应的include名
     function_pool = p_program.
@@ -4705,10 +4703,16 @@ form rep_scan_include  tables p_gt_rep structure gt_rep using value(p_program) v
     loop at functab.
       delete lt_includes where name = functab-include.
     endloop.
+
+*增加函数组的top
+    concatenate 'L'function_pool  'TOP' into lt_includes-name.
+    lv_function_pool_top = lt_includes-name.
+    append lt_includes.
+
   endif.
 
 *作为文件夹添加到rep
-  loop at lt_includes where name(1) = 'Z'. "只抓Z开头的include
+  loop at lt_includes where name(1) = 'Z' or name = lv_function_pool_top. "只抓Z开头的include
     read table p_gt_rep transporting no fields with key program = lt_includes-name.
     if sy-subrc ne 0.
       p_gt_rep-program = lt_includes-name.
@@ -4785,26 +4789,19 @@ endform.                    " FUGR_SET
 form code_scan_tables  tables
                                 p_gt_code structure gs_codes
                                 p_gt_table structure gt_table.
-
   data: lt_tokens type standard table of stokes with header line.
   data: lt_statements type standard table of sstmnt with header line.
   data: lt_keywords type standard table of text20 with header line.
   data: ls_table type ty_table.
-  data: ls_tablecomparison type ty_table.
-  data lv_exsit.
   data lt_ttyp type table of ty_ttyp with header line.
   data lt_dtel type table of ty_dtel with header line.
-
   append 'TABLES' to lt_keywords.
-
   scan abap-source p_gt_code
   tokens into lt_tokens
   statements into lt_statements
   keywords from lt_keywords.
-
   sort lt_tokens ascending by str.
   delete lt_tokens where str = 'TABLES'.
-
   loop at lt_tokens.
     try.
         if ( lt_tokens-str+0(1) <> 'Y' and lt_tokens-str+0(1) <> 'Z' ).
@@ -4830,28 +4827,20 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
                                     p_gt_table structure gt_table
                                     p_gt_ttyp structure gt_ttyp
                                     p_gt_dtel structure gt_dtel.
-
-
   data: lv_head type string.
   data: lv_tail type string.
   data: lv_no_use type string.
   data: lv_line type string.
   data: lv_linetype type string.
   data: lv_len type i value 0.
-  data: endofline type i value 1.
   data: ls_table type ty_table.
-  data: ls_tablecomparison type ty_table.
-  data lv_exsit.
-
   loop at p_gt_code.
     lv_len = strlen( p_gt_code ).
     if lv_len > 0.
       if p_gt_code(1) = '*'.
         continue.
       endif.
-
       translate p_gt_code to upper case.
-
       shift p_gt_code up to 'LIKE'.
       if sy-subrc = 0.
         lv_linetype = 'LIKE'.
@@ -4873,7 +4862,6 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
           if sy-subrc = 0.
             split p_gt_code at space into lv_no_use lv_line.
           endif.
-
           shift p_gt_code up to 'STRUCTURE'.
           if sy-subrc = 0.
             lv_linetype = 'STRUCTURE'.
@@ -4882,7 +4870,6 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
           endif.
         endif.
       endif.
-
       case lv_linetype.
         when 'LIKE' or 'TYPE' or 'STRUCTURE'.
           shift p_gt_code up to space.
@@ -4895,7 +4882,6 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
             p_gt_code = lv_tail.
             shift p_gt_code left deleting leading space.
           endif.
-
           try.
               if p_gt_code+0(1) = 'Y' or p_gt_code+0(1) = 'Z' .
               else.
@@ -4904,7 +4890,6 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
               endif.
             catch cx_sy_range_out_of_bounds into cx_root.
           endtry.
-
           if p_gt_code cs ','.
             split p_gt_code at ',' into lv_head lv_tail.
             if p_gt_code cs '-'.
@@ -4929,7 +4914,6 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
               endif.
             endif.
           endif.
-
           if not lv_head is initial.
             clear ls_table.
             ls_table-tablename = lv_head.
@@ -4939,7 +4923,6 @@ form code_scan_likeortype  tables   p_gt_code structure gs_codes
       endcase.
     endif.
   endloop.
-
 endform.                    " CODE_SCAN_LIKEORTYPE
 *&---------------------------------------------------------------------*
 *&      Form  DICT_ADD
@@ -5003,10 +4986,8 @@ form dict_class_add  tables
     ls_table   type ty_table,
     lv_exsit,
     lv_type(4).
-
 *判断对象类型
   perform dict_check using p_object changing lv_type.
-
   case lv_type.
     when 'TAB'.
       ls_table-tablename = p_object.
@@ -5026,7 +5007,6 @@ form dict_class_add  tables
     when 'CLAS'.
       object_add class clsname p_object.
   endcase.
-
 endform.                    " DICT_ADD
 *&---------------------------------------------------------------------*
 *&      Form  REP_INFO_SET
@@ -5098,11 +5078,6 @@ form html_viewer_init  changing p_lo_html_viewer type ref to cl_gui_html_viewer.
             value type string,
           end of ty_ls_form_field.
 
-  field-symbols <ls_form_field> type ty_ls_form_field.
-
-  data l_params type string.
-  data lt_form_field type table of ty_ls_form_field.
-  data l_sep type string.
   data:
     myevent_tab type cntl_simple_events,
     myevent     type cntl_simple_event.
@@ -5136,7 +5111,6 @@ form html_viewer_init  changing p_lo_html_viewer type ref to cl_gui_html_viewer.
       cntl_install_error   = 2
       dp_install_error     = 3
       dp_error             = 4.
-
 *注册事件（form post to sap）
   myevent-eventid = p_lo_html_viewer->m_id_sapevent.
   myevent-appl_event = 'X'.
@@ -5144,11 +5118,9 @@ form html_viewer_init  changing p_lo_html_viewer type ref to cl_gui_html_viewer.
   call method p_lo_html_viewer->set_registered_events
     exporting
       events = myevent_tab.
-
   create object evt_receiver.
   set handler evt_receiver->on_sapevent
               for p_lo_html_viewer.
-
 endform.                    " HTML_VIEWER_INIT
 *&---------------------------------------------------------------------*
 *&      Form  HTML_FORM_INIT
@@ -5199,9 +5171,7 @@ form html_form_init  using
   replace '&URL' in l_string with p_url.
   replace '&PARAMS' in l_string with p_par.
   replace '&METHOD' in l_string with 'POST'.
-
 *  l_string = '<!DOCTYPE html><html><body><script>alert();</script></body><ml>'.
-
   call function 'SWA_STRING_TO_TABLE'
     exporting
       character_string           = l_string
@@ -5210,7 +5180,6 @@ form html_form_init  using
     exceptions
       no_flat_charlike_structure = 1
       others                     = 2.
-
   call method go_html_viewer->load_data
     importing
       assigned_url         = p_assigned_url
@@ -5243,8 +5212,6 @@ form rep_to_json  using    p_gt_rep type ty_t_rep
   data:
     ls_rep  type ty_rep,
     ls_text type textpool.
-  data:
-        lv_xstring type xstring.
 
 *数据检查
   if p_uname is initial or p_passwd is initial.
@@ -5254,10 +5221,11 @@ form rep_to_json  using    p_gt_rep type ty_t_rep
 
 *程序描述
   if p_text is initial.
-    loop at p_gt_rep into ls_rep.
+    loop at p_gt_rep into ls_rep where type = '1'.
       read table ls_rep-text-text into ls_text with key id = 'R'.
       if sy-subrc = 0.
         p_text = ls_text-entry.
+        exit.
       endif.
     endloop.
   endif.
@@ -5281,10 +5249,8 @@ form rep_to_json  using    p_gt_rep type ty_t_rep
     concatenate p_lv_par lv_sep lt_keys-map ':"' <lv_value> '"' into p_lv_par. "js内层双引号转义
     lv_sep = ','.
   endloop.
-
 *转rep_pac
   perform zip_from_data using p_gt_rep changing lv_xml.
-
   concatenate p_lv_par lv_sep 'object' ':"' lv_xml '"' into p_lv_par. "第二层引号转义了
 
 *封装rep
@@ -5303,25 +5269,20 @@ endform.                    " JSON_FROM_DATA
 *----------------------------------------------------------------------*
 module status_2002 output.
   set pf-status '2002'.
-
 *POST请求
   data lv_assigned_url(255).
-
   if go_html_viewer is initial.
     perform html_viewer_init changing go_html_viewer.
   endif.
-
 *初始化表单
   perform html_form_init using gv_url gv_par
         changing lv_assigned_url.
-
 *加载表单（必须在PBO里执行，否则执行了代码不会有效果----PBO代码执行完了才开始渲染）
   call method go_html_viewer->show_data
     exporting
       url        = lv_assigned_url
     exceptions
       cntl_error = 1.
-
 endmodule.                 " STATUS_2002  OUTPUT
 *&---------------------------------------------------------------------*
 *&      Module  USER_COMMAND_2002  INPUT
@@ -5343,11 +5304,8 @@ endmodule.                 " USER_COMMAND_2002  INPUT
 *----------------------------------------------------------------------*
 form rep_sel_all  tables p_gt_rep structure gs_rep.
   data lt_node like table of gt_selected_node with header line.
-
-
   lt_node-nodekey = 0.
   append lt_node.
-
   perform rep_sel tables p_gt_rep lt_node.
 endform.                    " REP_SEL_ALL
 
@@ -5362,7 +5320,6 @@ data:     g_t1_lines  like sy-loopc.
 module t1_change_tc_attr output.
   describe table gt_pop lines t1-lines.
 endmodule.                    "T1_CHANGE_TC_ATTR OUTPUT
-
 *&SPWIZARD: OUTPUT MODULE FOR TC 'T1'. DO NOT CHANGE THIS LINE!
 *&SPWIZARD: GET LINES OF TABLECONTROL
 module t1_get_lines output.
@@ -5376,7 +5333,6 @@ module t1_modify input.
     from gt_pop
     index t1-current_line.
 endmodule.                    "T1_MODIFY INPUT
-
 *&SPWIZARD: INPUT MODULE FOR TC 'T1'. DO NOT CHANGE THIS LINE!
 *&SPWIZARD: PROCESS USER COMMAND
 module t1_user_command input.
@@ -5419,7 +5375,6 @@ form user_ok_tc using    p_tc_name type dynfnam
       perform fcode_insert_row using    p_tc_name
                                         p_table_name.
       clear p_ok.
-
     when 'DELE'.                      "delete row
       perform fcode_delete_row using    p_tc_name
                                         p_table_name
@@ -5450,7 +5405,6 @@ form user_ok_tc using    p_tc_name type dynfnam
                                         p_table_name
                                         p_mark_name   .
       clear p_ok.
-
     when 'DMRK'.                      "demark all filled lines
       perform fcode_tc_demark_lines using p_tc_name
                                           p_table_name
@@ -5461,9 +5415,7 @@ form user_ok_tc using    p_tc_name type dynfnam
 *          'SDESCEND'.                  "sort column
 *       PERFORM FCODE_SORT_TC USING P_TC_NAME
 *                                   l_ok.
-
   endcase.
-
 endform.                              " USER_OK_TC
 
 *&---------------------------------------------------------------------*
@@ -5518,7 +5470,6 @@ form fcode_insert_row
   set cursor line l_line.
 
 endform.                              " FCODE_INSERT_ROW
-
 *&---------------------------------------------------------------------*
 *&      Form  FCODE_DELETE_ROW                                         *
 *&---------------------------------------------------------------------*
@@ -5526,30 +5477,22 @@ form fcode_delete_row
               using    p_tc_name           type dynfnam
                        p_table_name
                        p_mark_name   .
-
 *&SPWIZARD: BEGIN OF LOCAL DATA----------------------------------------*
   data l_table_name       like feld-name.
-
   field-symbols <tc>         type cxtab_control.
   field-symbols <table>      type standard table.
   field-symbols <wa>.
   field-symbols <mark_field>.
 *&SPWIZARD: END OF LOCAL DATA------------------------------------------*
-
   assign (p_tc_name) to <tc>.
-
 *&SPWIZARD: get the table, which belongs to the tc                     *
   concatenate p_table_name '[]' into l_table_name. "table body
   assign (l_table_name) to <table>.                "not headerline
-
 *&SPWIZARD: delete marked lines                                        *
   describe table <table> lines <tc>-lines.
-
   loop at <table> assigning <wa>.
-
 *&SPWIZARD: access to the component 'FLAG' of the table header         *
     assign component p_mark_name of structure <wa> to <mark_field>.
-
     if <mark_field> = 'X'.
       delete <table> index syst-tabix.
       if sy-subrc = 0.
@@ -5557,7 +5500,6 @@ form fcode_delete_row
       endif.
     endif.
   endloop.
-
 endform.                              " FCODE_DELETE_ROW
 
 *&---------------------------------------------------------------------*
@@ -5626,7 +5568,6 @@ form compute_scrolling_in_tc using    p_tc_name
 
 
 endform.                              " COMPUTE_SCROLLING_IN_TC
-
 *&---------------------------------------------------------------------*
 *&      Form  FCODE_TC_MARK_LINES
 *&---------------------------------------------------------------------*
@@ -5639,25 +5580,19 @@ form fcode_tc_mark_lines using p_tc_name
                                p_mark_name.
 *&SPWIZARD: EGIN OF LOCAL DATA-----------------------------------------*
   data l_table_name       like feld-name.
-
   field-symbols <tc>         type cxtab_control.
   field-symbols <table>      type standard table.
   field-symbols <wa>.
   field-symbols <mark_field>.
 *&SPWIZARD: END OF LOCAL DATA------------------------------------------*
-
   assign (p_tc_name) to <tc>.
-
 *&SPWIZARD: get the table, which belongs to the tc                     *
   concatenate p_table_name '[]' into l_table_name. "table body
   assign (l_table_name) to <table>.                "not headerline
-
 *&SPWIZARD: mark all filled lines                                      *
   loop at <table> assigning <wa>.
-
 *&SPWIZARD: access to the component 'FLAG' of the table header         *
     assign component p_mark_name of structure <wa> to <mark_field>.
-
     <mark_field> = 'X'.
   endloop.
 endform.                                          "fcode_tc_mark_lines
@@ -5730,9 +5665,7 @@ form dict_check  using    p_object
     ls_dd40l    type dd40l,
     ls_dd04l    type dd04l,
     ls_seoclass type seoclass.
-
   clear p_lv_type.
-
   ls_table-tablename = p_object.
   perform table_description_get using ls_table-tablename changing ls_table-tabletitle.
   if sy-subrc = 0. "表、结构
@@ -5762,7 +5695,6 @@ form dict_check  using    p_object
       endif.
     endif.
   endif.
-
 endform.                    " DICT_CHECK
 *&---------------------------------------------------------------------*
 *&      Form  TTYP_GET
@@ -5781,7 +5713,6 @@ form ttyp_get  tables
     lt_dtel like table of gt_dtel.
 
   loop at p_gt_ttyp where dd40v_wa is initial. "只取没取过的
-
     lv_name = p_gt_ttyp-typename.
     call function 'DDIF_TTYP_GET'
       exporting
@@ -5799,12 +5730,9 @@ form ttyp_get  tables
     if sy-subrc <> 0.
     endif.
     modify p_gt_ttyp.
-
 *加结构（行类型）
     perform dict_add tables p_gt_table lt_ttyp lt_dtel using p_gt_ttyp-dd40v_wa-rowtype.
-
   endloop.
-
 endform.                    " TTYP_GET
 *&---------------------------------------------------------------------*
 *&      Form  REP_FROM_SERVER
@@ -5830,7 +5758,6 @@ form rep_from_server  changing p_gt_rep.
   if p_id is initial.
     p_id = 0. "防止jsonObject异常
   endif.
-
   lt_fields-key = 'id'. lt_fields-value = p_id. append lt_fields.
   if gv_init = 'X'. "初始化
     lt_fields-key = 'name'. lt_fields-value = 'ZLAN_ACC'. append lt_fields.
@@ -5855,7 +5782,6 @@ endform.                    " REP_FROM_SERVER
 form post_str_generate  tables   p_lt_fields structure gs_fields
                         changing cv_str.
   data lv_sep.
-
   loop at p_lt_fields.
     concatenate cv_str lv_sep p_lt_fields-key ':\"' p_lt_fields-value '\"' into cv_str. "js内层双引号转义
     lv_sep = ','.
@@ -5876,19 +5802,15 @@ form rep_search .
     lv_url      type text132 value '/acc/code/search',
     lv_post_str type string.
   data lt_fields like table of gs_fields with header line.
-
   concatenate gv_namespace lv_url into lv_url.
-
 *数据处理
   replace all occurrences of:
    '*' in p_id with '%',
    '*' in p_repnam with '%',
    '*' in p_text with '%',
    '*' in p_url with '%'.
-
 *后面改动，不用标签和url作为查询条件了
   clear:p_tag,p_url.
-
 *生成post数据
   lt_fields-key = 'id'. lt_fields-value = p_id. append lt_fields.
   lt_fields-key = 'text'. lt_fields-value = p_text. append lt_fields.
@@ -5896,12 +5818,9 @@ form rep_search .
   lt_fields-key = 'tag'. lt_fields-value = p_tag. append lt_fields.
   lt_fields-key = 'name'. lt_fields-value = p_repnam. append lt_fields.
   lt_fields-key = 'uname'. lt_fields-value = p_uname. append lt_fields.
-
   perform post_str_generate tables lt_fields changing lv_post_str.
-
 *发送post请求
   perform http_post using lv_url lv_post_str.
-
 endform.                    " REP_SEARCH
 *&---------------------------------------------------------------------*
 *&      Form  RESPONSE_PARSE
@@ -5922,7 +5841,6 @@ form response_parse tables postdata using uv_action.
     lv_string3    type string, "拆分临时数据
     lv_result     type string, "查询返回的list集合
     lv_notif      type string. "通知
-
   data:begin of ls_notif,
          notif_time(30),
          c1(72),
@@ -5931,15 +5849,10 @@ form response_parse tables postdata using uv_action.
          c4(72),
          c5(72),
        end of ls_notif.
-
-  field-symbols <ft> type standard table.
-  field-symbols:
-    <fs>        type char1,
-    <operation> type char10.
   data lv_c value '&'. "r3的宏不能写 '&'
 
   case uv_action.
-    when 'RESPONSE'.
+    when 'RESPONSE' or 'response'. "SAP升级后，返回的是小写的
 *解析form数据
       loop at postdata into ls_postdata.
         concatenate lv_string1 ls_postdata into lv_string1.
@@ -5950,31 +5863,21 @@ form response_parse tables postdata using uv_action.
       key_parse 'rep=' lv_rep.
       key_parse 'notif=' lv_notif.
       key_parse 'result=' lv_result.
-*      call method cl_http_utility=>decode_base64 "表单提交会自动encode，返回时需要手动decode
-*        exporting
-*          encoded = lv_string1
-*        receiving
-*          decoded = lv_string1.
       replace all occurrences of '%26' in  lv_result with '&'. "不知道为什么base64会乱码 ,且不能在第一步替换
-
 *通知
       split lv_notif at '*lan' into ls_notif-notif_time ls_notif-c1 ls_notif-c2 ls_notif-c3 ls_notif-c4 ls_notif-c5.
       export ls_notif = ls_notif
           to database indx(zz) id 'ZLAN_ACC_NOTIF'.
-
 *消息
       message lv_rtmsg type 'S' display like lv_rtype .
       if lv_rtype = 'E'.
         leave to screen 0.
       endif.
-
 *数据回写
       case 'X'.
 *导入
         when p_import or gv_init.
-
           perform zip_to_data using lv_rep  changing gt_rep[].
-
 *查询
         when p_search.
           do.
@@ -5984,7 +5887,6 @@ form response_parse tables postdata using uv_action.
             if gt_result-id is not initial.
               append gt_result.
             endif.
-
             if lv_string3 is initial.
               exit.
             else.
@@ -5998,11 +5900,8 @@ form response_parse tables postdata using uv_action.
           endloop.
         when others.
       endcase.
-
     when others.
-
   endcase.
-
 *销毁浏览器对象，否则可能出现卡死（测试发现是否卡死与是否debug有关）
   go_html_viewer->free(
     exceptions
@@ -6013,7 +5912,6 @@ form response_parse tables postdata using uv_action.
 * Implement suitable error handling here
   endif.
   clear go_html_viewer.
-
   leave to screen 0. "触发事件相当于进了PAI
 endform.                    " RESPONSE_PARSE
 *&---------------------------------------------------------------------*
@@ -6029,7 +5927,6 @@ form result_output .
     message '没有查询到数据' type 'S'.
     return.
   endif.
-
   perform fieldcat_build tables gt_fieldcat using 'ID' 'ID' space space space space space space space.
   perform fieldcat_build tables gt_fieldcat using 'NAME' '名称' space space space space space space space.
   perform fieldcat_build tables gt_fieldcat using 'TEXT' '描述' space space space space space space space.
@@ -6039,7 +5936,6 @@ form result_output .
   perform fieldcat_build tables gt_fieldcat using 'COUNT' '访问量' space space space space space space space.
   perform fieldcat_build tables gt_fieldcat using 'DATUM' '日期' space space space space space space space.
   perform fieldcat_build tables gt_fieldcat using 'UZEIT' '时间' space space space space space space space.
-
   loop at gt_fieldcat.
     if gt_fieldcat-fieldname = 'DETAIL'.
       gt_fieldcat-hotspot = 'X'.
@@ -6047,16 +5943,11 @@ form result_output .
       modify gt_fieldcat.
     endif.
   endloop.
-
-
-
   gs_layout-cwidth_opt = 'X'.
   gs_layout-sel_mode = 'A'.
   gs_layout-zebra = 'X'.
   gs_layout-box_fname = 'SEL'.
-
   gs_grid_settings-edt_cll_cb = 'X'.
-
   call function 'REUSE_ALV_GRID_DISPLAY_LVC'
     exporting
       i_callback_program       = sy-repid
@@ -6085,7 +5976,6 @@ endform.                    " RESULT_OUTPUT
 form alv_set_status using it_extab type slis_t_extab.
   set pf-status 'RESULT_OUTPUT'.
 endform.                    "FRM_SET_STATUS
-
 *&---------------------------------------------------------------------*
 *&      Form  ALV_USER_COMMAND
 *&---------------------------------------------------------------------*
@@ -6096,10 +5986,7 @@ endform.                    "FRM_SET_STATUS
 *----------------------------------------------------------------------*
 form alv_user_command using l_ucomm like sy-ucomm
       lv_des_selfield type slis_selfield.
-
   data lv_url type string.
-  data lt_repid like table of gt_repid with header line.
-
   case l_ucomm.
     when '&IC1'. "双击
       read table gt_result index lv_des_selfield-tabindex.
@@ -6108,7 +5995,6 @@ form alv_user_command using l_ucomm like sy-ucomm
         perform par_init.
         p_id = gt_result-id.
         p_import = 'X'.
-
         perform rep_from_server changing gt_rep[].
         perform rep_display tables gt_rep.
       else. "打开链接
@@ -6148,8 +6034,10 @@ endform.                    " PAR_INIT
 *      <--P_LV_XSTRING  text
 *----------------------------------------------------------------------*
 form xstring_from_string  changing p_lv_par.
-  data lv_xstring type xstring.
-
+  data:
+    lv_xstring type xstring,
+    lv_encod   type abap_encod.
+  lv_encod = gv_codepage.   " Modify By Denghb 20220118
   call function 'SCMS_STRING_TO_XSTRING'
     exporting
       text     = p_lv_par
@@ -6160,6 +6048,17 @@ form xstring_from_string  changing p_lv_par.
       failed   = 1
       others   = 2.
 
+  if sy-subrc = 1.
+    call function 'SCMS_STRING_TO_XSTRING'
+      exporting
+        text     = p_lv_par
+        encoding = lv_encod  " Modify By Denghb 20220118
+      importing
+        buffer   = lv_xstring
+      exceptions
+        failed   = 1
+        others   = 2.
+  endif.
   p_lv_par = lv_xstring.
 endform.                    " XSTRING_FROM_STRING
 *&---------------------------------------------------------------------*
@@ -6173,10 +6072,11 @@ form xstring_to_string  changing p_lv_string.
   data:
     lv_xstring type xstring,
     length     type i,
-    l_cntbin   type sdokcntbins.
+    l_cntbin   type sdokcntbins,
+    lv_encod   type abap_encod.
 
+  lv_encod = gv_codepage.     " Modify By Denghb 20220118
   lv_xstring = p_lv_string.
-
 *转二进制
   call function 'SCMS_XSTRING_TO_BINARY'
     exporting
@@ -6203,7 +6103,8 @@ form xstring_to_string  changing p_lv_string.
     else. "ecc和国际营销是4102
       call function 'SCMS_BINARY_TO_STRING'
         exporting
-          encoding      = '8400' "R3没有这个参数
+*         encoding      = '8400' "R3没有这个参数
+          encoding      = lv_encod    " Modify By Denghb 20220118
           input_length  = length
         importing
           text_buffer   = p_lv_string
@@ -6214,7 +6115,6 @@ form xstring_to_string  changing p_lv_string.
           failed        = 1
           others        = 2.
     endif.
-
   endif.
 endform.                    " XSTRING_TO_STRING
 *&---------------------------------------------------------------------*
@@ -6228,9 +6128,7 @@ form object_display  using    p_node_key.
 
 *代码编辑器
   data:
-    abaptext_tab  like abaptxt255 occurs 0 with header line,    " Quelltext
-    trdir_tab     like trdir occurs 0, " Attribute
-    ls_trdir      like trdir,
+    abaptext_tab  like abaptxt255 occurs 0 with header line,
     titletext(80) type c.
 
 *其他
@@ -6282,20 +6180,15 @@ endform.                    " REP_OBJECT_DISPLAY
 *----------------------------------------------------------------------*
 form initialization .
   data:
-    lt_callstack type sys_callst,
-    ls_callstack like line of lt_callstack,
-    lv_fname     type rs38l_fnam,
-    lt_d020s     type table of d020s with header line.
-
+    lt_callstack type sys_callst.
   perform data_initialize.
-
 *数据初始化
   sscrfields-functxt_01 = '@6C@ 注册'. "查找图标名称：SE11 TYPE-POOLS:ICON
 
   if p_debug = 'X'.
     gv_namespace = 'http://lan.s1.natapp.cc'.
   else.
-    gv_namespace = 'http://47.104.139.116:8080/'.
+    gv_namespace = 'http://xiaolan-tech.com:8080/'.
   endif.
 
 *初始化
@@ -6322,15 +6215,12 @@ form init_screen_set .
     lv_package    like gv_package,
     lt_screen     type table of ty_dynpro with header line,
     ls_flow_logic type line of swydyflow.
-
   lv_program = sy-repid.
-
   lt_screen-header-program = lv_program.
   lt_screen-header-screen = '2002'.
   lt_screen-header-type = 'M'.
   lt_screen-header-lines = '6'.
   lt_screen-header-columns = '51'.
-
   ls_flow_logic = 'PROCESS BEFORE OUTPUT.'.
   append ls_flow_logic to lt_screen-flow_logic.
   ls_flow_logic = 'MODULE STATUS_2002.'.
@@ -6339,10 +6229,8 @@ form init_screen_set .
   append ls_flow_logic to lt_screen-flow_logic.
   ls_flow_logic = 'MODULE USER_COMMAND_2002.'.
   append ls_flow_logic to lt_screen-flow_logic.
-
   lt_screen-node-sel = 'X'.
   append lt_screen.
-
   perform screen_set tables  lt_screen using lv_program lv_package. "创建屏幕，屏幕包入请求
 endform.                    " INIT_SCREEN_SET
 *&---------------------------------------------------------------------*
@@ -6354,7 +6242,6 @@ endform.                    " INIT_SCREEN_SET
 *  <--  p2        text
 *----------------------------------------------------------------------*
 form selection_screen_pbo .
-
   data itab type table of sy-ucomm.
   data:begin of ls_notif,
          notif_time(30),
@@ -6383,17 +6270,21 @@ form selection_screen_pbo .
         case 'X'.
           when p_search.
             if screen-group1 is not initial and screen-group1 ne 'M1' and screen-group1 ne 'M3'
+            and screen-group1 ne 'M4'
               or screen-name = 'P_FILE'.
               screen-active = 0.
             endif.
             p_server = 'X'.
             p_file = ''.
           when p_export.
-            if screen-group1 is not initial and screen-group1 ne 'M2'.
+            if screen-group1 is not initial and screen-group1 ne 'M2' and screen-group1 ne 'M4'.
               screen-active = 0.
             endif.
             if p_server = 'X' and screen-group1 = 'M3'. "导出云端需要输入用户名密码
               screen-active = 1.
+            endif.
+            if p_file = 'X' and screen-group1 = 'M4'. "导出本地不需要输入描述
+              screen-active = 0.
             endif.
           when p_import.
             if screen-group1 is not initial.
@@ -6446,12 +6337,10 @@ form user_register .
     lv_url      type text132,
     lv_post_str type string.
   data lt_fields like table of gs_fields with header line.
-
   if gv_uname is initial or gv_paswd is initial
     or gv_phone is initial or gv_email is initial.
     message '必填数据不能为空' type 'E'.
   endif.
-
 *生成post数据
   lt_fields-key = 'uname'. lt_fields-value = gv_uname. append lt_fields.
   lt_fields-key = 'passwd'. lt_fields-value = gv_paswd. append lt_fields. "注意这里少一个w
@@ -6478,13 +6367,10 @@ form user_check .
     lv_url      type text132,
     lv_post_str type string.
   data lt_fields like table of gs_fields with header line.
-
 *生成post数据
   lt_fields-key = 'uname'. lt_fields-value = gv_uname. append lt_fields.
   perform post_str_generate tables lt_fields changing lv_post_str.
-
   concatenate gv_namespace '/acc/user/check' into lv_url.
-
 *发送post请求
   perform http_post using lv_url lv_post_str.
 endform.                    " USER_CHECK
@@ -6505,7 +6391,6 @@ form selection_screen_pai .
       endif.
     when '2005'.
       perform email_validate.
-
       if sy-ucomm = 'CHECK'. "检查
         perform user_check.
       elseif sy-ucomm = 'CRET'. "创建
@@ -6513,10 +6398,6 @@ form selection_screen_pai .
       endif.
     when others.
   endcase.
-
-
-
-
 endform.                    " SELECTION_SCREEN_PAI
 *&---------------------------------------------------------------------*
 *&      Form  EMAIL_VALIDATE
@@ -6537,13 +6418,10 @@ endform.                    " EMAIL_VALIDATE
 *      -->P_LT_REPID  text
 *----------------------------------------------------------------------*
 form rep_delete .
-
   data:
     lv_url      type text132,
     lv_post_str type string.
-  data lt_fields like table of gs_fields with header line.
   data lt_repid like table of gt_repid with header line.
-
 *提示确认
   call function 'POPUP_TO_CONFIRM'
     exporting
@@ -6596,11 +6474,8 @@ form rep_delete .
   shift lv_post_str right deleting trailing ','.
   condense lv_post_str.
   concatenate 'post_str:"' lv_post_str '"' into lv_post_str.
-
-
 *发送post请求
   perform http_post using lv_url lv_post_str.
-
 endform.                    " REP_DELETE
 *&---------------------------------------------------------------------*
 *&      Form  CODE_SCAN_SQL
@@ -6618,8 +6493,6 @@ form code_scan_sql  tables
   data: lt_statements type standard table of sstmnt with header line.
   data: lt_keywords type standard table of text20 with header line.
   data: ls_table type ty_table.
-  data: ls_tablecomparison type ty_table.
-  data lv_exsit.
   data lt_ttyp type table of ty_ttyp with header line.
   data lt_dtel type table of ty_dtel with header line.
 
@@ -6647,7 +6520,6 @@ form code_scan_sql  tables
     ls_table-tablename = lt_tokens-str.
     perform dict_add tables p_gt_table lt_ttyp lt_dtel using ls_table-tablename. "lt_ttyp和lt_dtel只是为了凑数
   endloop.
-
 endform.                    " CODE_SCAN_SQL
 *&---------------------------------------------------------------------*
 *&      Form  REP_DICT_NAME_GET
@@ -6686,32 +6558,23 @@ form rep_dict_name_get  tables
 
       perform dict_name_get_by_progname tables lt_wbcrossgt using lv_include.
     endloop.
-  else.
+  elseif p_ls_rep-type = 'C'. "class
+    concatenate p_ls_rep-program '=%' into p_ls_rep-program.
+    select *
+    from wbcrossgt
+    appending corresponding fields of table lt_wbcrossgt
+    where include like p_ls_rep-program and otype = 'TY'.
+  else. "程序
     perform dict_name_get_by_progname tables lt_wbcrossgt using p_ls_rep-program.
   endif.
 
   loop at lt_wbcrossgt.
-    if lt_wbcrossgt-name cs '\' or lt_wbcrossgt-name(1) ne 'Z'.
+    if lt_wbcrossgt-name cs '\' or ( lt_wbcrossgt-name(1) ne 'Z' and lt_wbcrossgt-name(1) ne 'Y' ).
       continue.
     endif.
 *    perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using lt_wbcrossgt-name.
     perform dict_class_add tables p_gt_table p_gt_ttyp p_gt_dtel p_gt_class using lt_wbcrossgt-name.
   endloop.
-
-**按程序和函数组抓
-*  data lt_d010tab  like table of d010tab  with header line.
-*
-*  select *
-*    into corresponding fields of table lt_d010tab
-*    from d010tab
-*    where master = p_program.
-*
-*  loop at lt_d010tab.
-*    if lt_d010tab-tabname(1) ne 'Z'.
-*      continue.
-*    endif.
-*    perform dict_add tables p_gt_table p_gt_ttyp p_gt_dtel using lt_d010tab-tabname.
-*  endloop.
 
 endform.                    " REP_DICT_NAME_GET
 *&---------------------------------------------------------------------*
@@ -6724,12 +6587,10 @@ endform.                    " REP_DICT_NAME_GET
 *----------------------------------------------------------------------*
 form dict_name_get_by_progname  tables   p_lt_wbcrossgt structure wbcrossgt
                                 using    p_lv_include.
-
   select *
       appending corresponding fields of table p_lt_wbcrossgt
       from wbcrossgt
       where otype = 'TY' and include = p_lv_include.
-
 endform.                    " DICT_NAME_GET_BY_PROGNAME
 *&---------------------------------------------------------------------*
 *&      Form  REP_INIT
@@ -6742,7 +6603,6 @@ endform.                    " DICT_NAME_GET_BY_PROGNAME
 form rep_init .
   data:
     lv_package  like tadir-devclass value '$TMP',
-    lv_program  like sy-repid value 'ZLAN_ACC',
     lv_ques(50).
 
   lv_ques = '即将开始程序初始化，请选择同步服务器还是本地文件？'.
@@ -6769,7 +6629,6 @@ form rep_init .
     message '已取消操作' type 'S'.
     return.
   endif.
-
   gv_init = 'X'.
   if p_file = 'X'.
     perform rep_upload changing gt_rep[].
@@ -6780,10 +6639,8 @@ form rep_init .
   endif.
   perform rep_sel_all tables gt_rep.
   perform rep_set tables gt_rep changing lv_package.
-
   message '初始化完毕' type 'S'.
   call transaction 'SE38'.
-
   clear gv_init.
 endform.                    " REP_INIT
 
@@ -6810,7 +6667,8 @@ endform.                    " EXEC_CHECK
 *----------------------------------------------------------------------*
 form class_get  tables   p_gt_class structure gt_class.
 
-  data: lo_source type ref to cl_oo_source.
+*  data: lo_source type ref to cl_oo_source.
+  data: lo_source type ref to object.
   data: lo_source_new type ref to object,
         lo_instance   type ref to object.
   data:
@@ -6836,7 +6694,6 @@ form class_get  tables   p_gt_class structure gt_class.
       return. " in case only inactive version exists
     elseif sy-subrc <> 0.
     endif.
-
 *source
 *-------------------------------------------------------
 *18.03.2021 13:53:16 chenyl for 之前测试ok,s4升级之后不让用这个了？ SAP_ABA  75D 0004
@@ -6861,24 +6718,34 @@ form class_get  tables   p_gt_class structure gt_class.
       catch cx_root into lo_ref.
         lv_text = lo_ref->get_text( ).
 *老的方法
-        " Do not use this class any more! Use cl_oo_factory=>create_instance( )->create_clif_source( ) instead! Thanks!
-        create object lo_source
+*        create object lo_source
+*          exporting
+*            clskey             = ls_clskey
+*          exceptions
+*            class_not_existing = 1
+*            others             = 2.
+*        if sy-subrc <> 0.
+**      lcx_exception=>raise( 'error from CL_OO_SOURCE' ).
+*        endif.
+*        lo_source->read( 'A' ).
+*        lt_source = lo_source->get_old_source( ).
+        create object lo_source type ('CL_OO_SOURCE') "有些系统也没有CL_OO_SOURCE，为了防止语法检查报错，全部都要动态调用
           exporting
-            clskey             = ls_clskey
-          exceptions
-            class_not_existing = 1
-            others             = 2.
-        if sy-subrc <> 0.
-*      lcx_exception=>raise( 'error from CL_OO_SOURCE' ).
-        endif.
-        lo_source->read( 'A' ).
-        lt_source = lo_source->get_old_source( ).
+                    clskey             = ls_clskey.
+
+        call method lo_source->('READ')
+          exporting
+            version = 'A'.
+
+        call method lo_source->('GET_OLD_SOURCE')
+          receiving
+            old_source = lt_source.
+
     endtry.
 *-------------------------------------------------------
     p_gt_class-t_source = lt_source.
     modify p_gt_class.
   endloop.
-
 endform.                    "class_get
 *&---------------------------------------------------------------------*
 *& Form SCREEN_CHECK
